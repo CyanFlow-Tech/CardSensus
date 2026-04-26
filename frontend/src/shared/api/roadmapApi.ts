@@ -22,9 +22,8 @@ export interface TechnologyProfileResponse {
   unlocks: Technology[];
 }
 
-export interface ProjectProfileResponse {
-  project: Project;
-  related_technologies: Technology[];
+export interface ProjectCreatePayload {
+  technology_ids: string[];
 }
 
 export interface TechnologyUpdatePayload {
@@ -95,8 +94,10 @@ export const roadmapApi = {
       `/technologies/${encodeURIComponent(technologyId)}`,
       payload
     ),
+  appendTechnologyResourceNote: (technologyId: string, text: string) =>
+    httpPost<TechnologyProfileResponse>(`/technologies/${encodeURIComponent(technologyId)}/resources`, { text }),
   deleteTechnology: (technologyId: string) =>
     httpDelete(`/technologies/${encodeURIComponent(technologyId)}`),
-  getProjectProfile: (projectId: string) => httpGet<ProjectProfileResponse>(`/projects/${projectId}`)
+  createProject: (payload: ProjectCreatePayload) =>
+    httpPost<{ project: Project; related_technologies: Technology[] }>("/projects", payload)
 };
-

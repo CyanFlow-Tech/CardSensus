@@ -1,32 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CopyOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
   roadmapApi,
   type DashboardGraphResponse,
-  type ProjectProfileResponse,
+  type ProjectCreatePayload,
   type TechnologyProfileResponse,
   type TechnologySyncItemPayload,
   type TechnologyUpdatePayload
 } from "../../shared/api/roadmapApi";
 import { buildLayeredPositions } from "../../shared/lib/graphLayout";
+import { formatHours, formatPercent } from "../../shared/lib/format";
 import { InspectorPanel } from "../../widgets/inspector/InspectorPanel";
 import { TopologyMap } from "../../widgets/topology-map/TopologyMap";
 
 const TOAST_MS = 4200;
 const SYNC_DRAFT_ID_PREFIX = "tech-draft-";
+const ALL_DECK_ID = "deck-all-cards";
 
 interface SelectedTechnologyState {
   technology: TechnologyDetail | null;
   relatedProjects: Project[];
   prerequisites: Technology[];
   unlocks: Technology[];
-}
-
-interface SelectedProjectState {
-  project: Project | null;
-  technologies: Technology[];
 }
 
 const emptyTechnologyState: SelectedTechnologyState = {
@@ -36,16 +33,25 @@ const emptyTechnologyState: SelectedTechnologyState = {
   unlocks: []
 };
 
-const emptyProjectState: SelectedProjectState = {
-  project: null,
-  technologies: []
-};
-
-export type WorkspaceView = "dependency" | "deck";
-
 interface SyncDraftChanges {
   addedIds: string[];
   updatedIds: string[];
+}
+
+interface DeckViewCard {
+  deckId: string;
+  name: string;
+  summary: string;
+  project: Project | null;
+  isAllDeck: boolean;
+  technologies: Technology[];
+  totalHours: number;
+  rarityProduct: number;
+}
+
+interface NodePickerCard {
+  technology: Technology;
+  projectCount: number;
 }
 
 function normalizeSyncItem(item: TechnologySyncItemPayload): TechnologySyncItemPayload | null {
@@ -213,12 +219,101 @@ function hasDependencyPath(relations: DashboardGraphResponse["relations"], fromI
   return false;
 }
 
+function buildDeckRelations(
+  relations: DashboardGraphResponse["relations"],
+  technologyIds: string[]
+): DashboardGraphResponse["relations"] {
+  const selectedIds = [...new Set(technologyIds)];
+  if (selectedIds.length <= 1) {
+    return [];
+  }
+
+  const dependencyRelations = relations.filter((relation) => relation.relation_type === "dependency");
+  const adjacency = new Map<string, string[]>();
+  dependencyRelations.forEach((relation) => {
+    const next = adjacency.get(relation.source_id) ?? [];
+    next.push(relation.target_id);
+    adjacency.set(relation.source_id, next);
+  });
+
+  const reachableById = new Map<string, Set<string>>();
+  selectedIds.forEach((sourceId) => {
+    const visited = new Set<string>();
+    const queue = [...(adjacency.get(sourceId) ?? [])];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) {
+        continue;
+      }
+      visited.add(current);
+      (adjacency.get(current) ?? []).forEach((nextId) => {
+        if (!visited.has(nextId)) {
+          queue.push(nextId);
+        }
+      });
+    }
+    reachableById.set(sourceId, visited);
+  });
+
+  const inferredRelations: DashboardGraphResponse["relations"] = [];
+  selectedIds.forEach((sourceId) => {
+    const reachable = reachableById.get(sourceId) ?? new Set<string>();
+    selectedIds.forEach((targetId) => {
+      if (sourceId === targetId || !reachable.has(targetId)) {
+        return;
+      }
+      const hasIntermediateSelectedNode = selectedIds.some((intermediateId) => {
+        if (intermediateId === sourceId || intermediateId === targetId) {
+          return false;
+        }
+        return (
+          (reachableById.get(sourceId)?.has(intermediateId) ?? false) &&
+          (reachableById.get(intermediateId)?.has(targetId) ?? false)
+        );
+      });
+      if (!hasIntermediateSelectedNode) {
+        inferredRelations.push({
+          source_id: sourceId,
+          target_id: targetId,
+          relation_type: "dependency"
+        });
+      }
+    });
+  });
+
+  return inferredRelations;
+}
+
+function normalizeSearchKeyword(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function projectIdToLayoutKey(projectId: string | null): number {
+  if (!projectId) {
+    return 0;
+  }
+  return [...projectId].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function DeckPinnedIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden className="deck-card__pinned-icon-svg">
+      <path
+        d="M5 2.5h6M6 2.5v3l2 2 2-2v-3M8 7.5V13.5M6 13.5h4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function DashboardPage() {
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("dependency");
   const [dashboard, setDashboard] = useState<DashboardGraphResponse | null>(null);
   const [selectedTechnologyId, setSelectedTechnologyId] = useState<string | null>(null);
   const [selectedTechnology, setSelectedTechnology] = useState<SelectedTechnologyState>(emptyTechnologyState);
-  const [selectedProject, setSelectedProject] = useState<SelectedProjectState>(emptyProjectState);
+  const [selectedDeckId, setSelectedDeckId] = useState<string>(ALL_DECK_ID);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [toastVersion, setToastVersion] = useState(0);
@@ -233,6 +328,12 @@ export function DashboardPage() {
   const [syncDraftChanges, setSyncDraftChanges] = useState<SyncDraftChanges | null>(null);
   const [exporting, setExporting] = useState(false);
   const [relayoutSaving, setRelayoutSaving] = useState(false);
+  const [deckSearchKeyword, setDeckSearchKeyword] = useState("");
+  const [isCreatingDeck, setIsCreatingDeck] = useState(false);
+  const [selectedDeckTechnologyIds, setSelectedDeckTechnologyIds] = useState<string[]>([]);
+  const [creatingDeck, setCreatingDeck] = useState(false);
+  const deckListRef = useRef<HTMLDivElement | null>(null);
+  const deckItemRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const isSyncDrafting = syncDraftChanges !== null;
   const glowingTechnologyIds = syncDraftChanges
     ? [...syncDraftChanges.addedIds, ...syncDraftChanges.updatedIds]
@@ -296,7 +397,6 @@ export function DashboardPage() {
       setSyncDraftChanges(null);
       setSelectedTechnologyId(null);
       setSelectedTechnology(emptyTechnologyState);
-      setSelectedProject(emptyProjectState);
       showToast("已取消草稿同步");
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "取消草稿失败");
@@ -341,7 +441,6 @@ export function DashboardPage() {
   useEffect(() => {
     if (!selectedTechnologyId) {
       setSelectedTechnology(emptyTechnologyState);
-      setSelectedProject(emptyProjectState);
       return;
     }
 
@@ -349,7 +448,6 @@ export function DashboardPage() {
       const localState = buildLocalTechnologyState(dashboard, selectedTechnologyId);
       if (localState) {
         setSelectedTechnology(localState);
-        setSelectedProject(emptyProjectState);
       }
       return;
     }
@@ -363,12 +461,134 @@ export function DashboardPage() {
           prerequisites: response.prerequisites,
           unlocks: response.unlocks
         });
-        setSelectedProject(emptyProjectState);
       })
       .catch((requestError) => {
         showToast(requestError instanceof Error ? requestError.message : "节点详情加载失败");
       });
   }, [dashboard, isSyncDrafting, selectedTechnologyId, showToast]);
+
+  const technologiesById = useMemo(
+    () => new Map((dashboard?.technologies ?? []).map((technology) => [technology.id, technology])),
+    [dashboard]
+  );
+
+  const deckCards = useMemo<DeckViewCard[]>(() => {
+    if (!dashboard) {
+      return [];
+    }
+    const allTechnologies = dashboard.technologies;
+    const allDeckCard: DeckViewCard = {
+      deckId: ALL_DECK_ID,
+      name: "全部卡牌",
+      summary: "",
+      project: null,
+      isAllDeck: true,
+      technologies: allTechnologies,
+      totalHours: allTechnologies.reduce((sum, technology) => sum + technology.time_spent_hours, 0),
+      rarityProduct: allTechnologies.reduce((product, technology) => product * technology.rarity_index, 1)
+    };
+
+    const projectDeckCards = dashboard.projects.map((project) => {
+      const technologies = project.associated_tech
+        .map((technologyId) => technologiesById.get(technologyId))
+        .filter((technology): technology is Technology => Boolean(technology));
+      return {
+        deckId: project.id,
+        name: project.name,
+        summary: project.summary,
+        project,
+        isAllDeck: false,
+        technologies,
+        totalHours: technologies.reduce((sum, technology) => sum + technology.time_spent_hours, 0),
+        rarityProduct: technologies.reduce((product, technology) => product * technology.rarity_index, 1)
+      };
+    });
+    return [allDeckCard, ...projectDeckCards];
+  }, [dashboard, technologiesById]);
+
+  const normalizedDeckSearchKeyword = useMemo(() => normalizeSearchKeyword(deckSearchKeyword), [deckSearchKeyword]);
+
+  const filteredDeckCards = useMemo(() => {
+    if (!normalizedDeckSearchKeyword) {
+      return deckCards;
+    }
+    return deckCards.filter(({ name, summary }) => {
+      const haystack = `${name} ${summary}`.toLowerCase();
+      return haystack.includes(normalizedDeckSearchKeyword);
+    });
+  }, [deckCards, normalizedDeckSearchKeyword]);
+
+  const filteredNodePickerCards = useMemo<NodePickerCard[]>(() => {
+    if (!dashboard) {
+      return [];
+    }
+    const projectCountByTechnologyId = new Map<string, number>();
+    dashboard.projects.forEach((project) => {
+      project.associated_tech.forEach((technologyId) => {
+        projectCountByTechnologyId.set(technologyId, (projectCountByTechnologyId.get(technologyId) ?? 0) + 1);
+      });
+    });
+    return dashboard.technologies
+      .filter((technology) => {
+        if (!normalizedDeckSearchKeyword) {
+          return true;
+        }
+        const haystack = `${technology.name} ${technology.summary}`.toLowerCase();
+        return haystack.includes(normalizedDeckSearchKeyword);
+      })
+      .map((technology) => ({
+        technology,
+        projectCount: projectCountByTechnologyId.get(technology.id) ?? 0
+      }));
+  }, [dashboard, normalizedDeckSearchKeyword]);
+
+  const activeDeckCard = useMemo(
+    () => deckCards.find((deckCard) => deckCard.deckId === selectedDeckId) ?? deckCards[0] ?? null,
+    [deckCards, selectedDeckId]
+  );
+  const activeDeckLayoutKey = useMemo(
+    () => mapLayoutKey + projectIdToLayoutKey(activeDeckCard?.deckId ?? null),
+    [activeDeckCard?.deckId, mapLayoutKey]
+  );
+
+  const activeDeckRelations = useMemo(() => {
+    if (!dashboard || !activeDeckCard) {
+      return [];
+    }
+    return buildDeckRelations(
+      dashboard.relations,
+      activeDeckCard.technologies.map((technology) => technology.id)
+    );
+  }, [activeDeckCard, dashboard]);
+
+  const pinnedDeckCard = useMemo(
+    () => filteredDeckCards.find((deckCard) => deckCard.isAllDeck) ?? null,
+    [filteredDeckCards]
+  );
+
+  const scrollableDeckCards = useMemo(
+    () => filteredDeckCards.filter((deckCard) => !deckCard.isAllDeck),
+    [filteredDeckCards]
+  );
+
+  useEffect(() => {
+    if (isCreatingDeck || selectedDeckId === ALL_DECK_ID) {
+      return;
+    }
+    const listElement = deckListRef.current;
+    const itemElement = deckItemRefs.current.get(selectedDeckId);
+    if (!listElement || !itemElement) {
+      return;
+    }
+    const listRect = listElement.getBoundingClientRect();
+    const itemRect = itemElement.getBoundingClientRect();
+    const itemCenterOffset = itemRect.top - listRect.top + listElement.scrollTop + itemRect.height / 2;
+    const targetTop = itemCenterOffset - listElement.clientHeight / 2;
+    listElement.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth"
+    });
+  }, [isCreatingDeck, selectedDeckId]);
 
   const handleSelectTechnology = (technologyId: string) => {
     setSelectedTechnologyId(technologyId);
@@ -377,18 +597,6 @@ export function DashboardPage() {
   const handleClearSelection = () => {
     setSelectedTechnologyId(null);
     setSelectedTechnology(emptyTechnologyState);
-    setSelectedProject(emptyProjectState);
-  };
-
-  const handleWorkspaceViewChange = (view: WorkspaceView) => {
-    if (isSyncDrafting && view !== "dependency") {
-      void handleDiscardSyncDraft();
-    }
-    if (view !== "dependency") {
-      handleClearSelection();
-    }
-    clearToast();
-    setWorkspaceView(view);
   };
 
   const handleCreateDerived = async (parentId: string) => {
@@ -606,7 +814,6 @@ export function DashboardPage() {
       if (localState) {
         setSelectedTechnology(localState);
       }
-      setSelectedProject(emptyProjectState);
       return;
     }
     clearToast();
@@ -620,7 +827,6 @@ export function DashboardPage() {
         prerequisites: profile.prerequisites,
         unlocks: profile.unlocks
       });
-      setSelectedProject(emptyProjectState);
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "更新失败");
       throw requestError;
@@ -637,7 +843,6 @@ export function DashboardPage() {
       await roadmapApi.deleteTechnology(technologyId);
       setSelectedTechnologyId(null);
       setSelectedTechnology(emptyTechnologyState);
-      setSelectedProject(emptyProjectState);
       setDashboard(await roadmapApi.getDashboardGraph());
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "删除失败");
@@ -645,30 +850,99 @@ export function DashboardPage() {
     }
   };
 
-  const handleSelectProject = (projectId: string) => {
-    if (isSyncDrafting && dashboard) {
-      const project = dashboard.projects.find((item) => item.id === projectId) ?? null;
-      if (!project) {
-        showToast("项目详情加载失败");
+  const handleAppendResource = useCallback(
+    async (text: string) => {
+      if (!selectedTechnologyId) {
         return;
       }
-      setSelectedProject({
-        project,
-        technologies: dashboard.technologies.filter((technology) => project.associated_tech.includes(technology.id))
-      });
+      if (isSyncDrafting) {
+        showToast("草稿同步中暂不支持添加资料，请先确认或取消草稿");
+        throw new Error("draft mode append resource disabled");
+      }
+      clearToast();
+      try {
+        const profile = await roadmapApi.appendTechnologyResourceNote(selectedTechnologyId, text);
+        const graph = await roadmapApi.getDashboardGraph();
+        setDashboard(graph);
+        setSelectedTechnology({
+          technology: profile.technology,
+          relatedProjects: profile.related_projects,
+          prerequisites: profile.prerequisites,
+          unlocks: profile.unlocks
+        });
+      } catch (requestError) {
+        showToast(requestError instanceof Error ? requestError.message : "添加资料失败");
+        throw requestError;
+      }
+    },
+    [clearToast, isSyncDrafting, selectedTechnologyId, showToast]
+  );
+
+  const handleSelectProject = (projectId: string) => {
+    setSelectedDeckId(projectId);
+  };
+
+  const handleSelectDeckProject = (projectId: string) => {
+    setSelectedTechnologyId(null);
+    setSelectedTechnology(emptyTechnologyState);
+    if (projectId === ALL_DECK_ID) {
+      setSelectedDeckId(ALL_DECK_ID);
       return;
     }
-    roadmapApi
-      .getProjectProfile(projectId)
-      .then((response: ProjectProfileResponse) => {
-        setSelectedProject({
-          project: response.project,
-          technologies: response.related_technologies
-        });
-      })
-      .catch((requestError) => {
-        showToast(requestError instanceof Error ? requestError.message : "项目详情加载失败");
-      });
+    setSelectedDeckId(projectId);
+  };
+
+  const handleToggleDeckCreateMode = () => {
+    clearToast();
+    if (isCreatingDeck) {
+      setIsCreatingDeck(false);
+      setSelectedDeckTechnologyIds([]);
+      setDeckSearchKeyword("");
+      return;
+    }
+    setSelectedTechnologyId(null);
+    setSelectedTechnology(emptyTechnologyState);
+    setSelectedDeckTechnologyIds([]);
+    setDeckSearchKeyword("");
+    setIsCreatingDeck(true);
+  };
+
+  const handleToggleDeckTechnology = (technologyId: string) => {
+    setSelectedDeckTechnologyIds((prev) =>
+      prev.includes(technologyId) ? prev.filter((id) => id !== technologyId) : [...prev, technologyId]
+    );
+  };
+
+  const handleConfirmCreateDeck = async () => {
+    if (!dashboard || creatingDeck) {
+      return;
+    }
+    clearToast();
+    const technologyIds = selectedDeckTechnologyIds;
+    if (technologyIds.length === 0) {
+      showToast("请至少选择一个节点后再确认");
+      return;
+    }
+    const payload: ProjectCreatePayload = {
+      technology_ids: technologyIds
+    };
+    setCreatingDeck(true);
+    try {
+      const profile = await roadmapApi.createProject(payload);
+      const graph = await roadmapApi.getDashboardGraph();
+      setDashboard(graph);
+      setSelectedDeckId(profile.project.id);
+      setSelectedTechnologyId(null);
+      setSelectedTechnology(emptyTechnologyState);
+      setSelectedDeckTechnologyIds([]);
+      setDeckSearchKeyword("");
+      setIsCreatingDeck(false);
+      showToast(`已创建 ${profile.project.name}`);
+    } catch (requestError) {
+      showToast(requestError instanceof Error ? requestError.message : "创建牌组失败");
+    } finally {
+      setCreatingDeck(false);
+    }
   };
 
   const handleOpenSyncDialog = () => {
@@ -780,107 +1054,73 @@ export function DashboardPage() {
 
   return (
     <main className="dashboard-shell">
-      <header className="app-capsule-nav" role="navigation" aria-label="主视图切换">
-        <div className="capsule-nav">
+      <section className="workspace-stage">
+        <div className="graph-action-group">
           <button
             type="button"
-            className={`capsule-nav__btn ${workspaceView === "dependency" ? "capsule-nav__btn--active" : ""}`}
-            onClick={() => handleWorkspaceViewChange("dependency")}
+            className="graph-action-btn graph-action-btn--icon"
+            title="通过 JSON 同步节点"
+            aria-label="通过 JSON 同步节点"
+            onClick={handleOpenSyncDialog}
           >
-            依赖视图
+            <FileTextOutlined />
           </button>
           <button
             type="button"
-            className={`capsule-nav__btn ${workspaceView === "deck" ? "capsule-nav__btn--active" : ""}`}
-            onClick={() => handleWorkspaceViewChange("deck")}
+            className="graph-action-btn graph-action-btn--icon"
+            title="复制大模型提示词"
+            aria-label="复制大模型提示词"
+            onClick={handleCopyModelPrompt}
           >
-            牌组视图
+            <CopyOutlined />
+          </button>
+          <button
+            type="button"
+            className="graph-action-btn graph-action-btn--icon"
+            title="下载当前节点 JSON"
+            aria-label="下载当前节点 JSON"
+            disabled={exporting}
+            onClick={handleDownloadNodeJson}
+          >
+            {exporting ? <LoadingOutlined spin /> : <DownloadOutlined />}
+          </button>
+          <button
+            type="button"
+            className="graph-action-btn graph-action-btn--icon"
+            title="全局重排节点布局并写入数据文件"
+            aria-label="全局重排节点布局"
+            disabled={isSyncDrafting || relayoutSaving}
+            onClick={() => void handleRelayout()}
+          >
+            {relayoutSaving ? <LoadingOutlined spin /> : <ReloadOutlined />}
           </button>
         </div>
-      </header>
 
-      <section className="workspace-stage">
-        {workspaceView === "dependency" ? (
-          <>
-            <div className="graph-action-group">
-              <button
-                type="button"
-                className="graph-action-btn graph-action-btn--icon"
-                title="通过 JSON 同步节点"
-                aria-label="通过 JSON 同步节点"
-                onClick={handleOpenSyncDialog}
-              >
-                <FileTextOutlined />
-              </button>
-              <button
-                type="button"
-                className="graph-action-btn graph-action-btn--icon"
-                title="复制大模型提示词"
-                aria-label="复制大模型提示词"
-                onClick={handleCopyModelPrompt}
-              >
-                <CopyOutlined />
-              </button>
-              <button
-                type="button"
-                className="graph-action-btn graph-action-btn--icon"
-                title="下载当前节点 JSON"
-                aria-label="下载当前节点 JSON"
-                disabled={exporting}
-                onClick={handleDownloadNodeJson}
-              >
-                {exporting ? <LoadingOutlined spin /> : <DownloadOutlined />}
-              </button>
-              <button
-                type="button"
-                className="graph-action-btn graph-action-btn--icon"
-                title="全局重排节点布局并写入数据文件"
-                aria-label="全局重排节点布局"
-                disabled={isSyncDrafting || relayoutSaving}
-                onClick={() => void handleRelayout()}
-              >
-                {relayoutSaving ? <LoadingOutlined spin /> : <ReloadOutlined />}
-              </button>
-            </div>
-            <TopologyMap
-              technologies={dashboard.technologies}
-              relations={dashboard.relations}
-              projects={dashboard.projects}
-              selectedTechnologyId={selectedTechnologyId}
-              onSelectTechnology={handleSelectTechnology}
-              onClearSelection={handleClearSelection}
-              onCreateDerived={handleCreateDerived}
-              onCreateDependency={handleCreateDependency}
-              onDeleteDependency={handleDeleteDependency}
-              isDependencyLinkAllowed={isDependencyLinkAllowed}
-              creatingFromId={creatingFromId}
-              glowingTechnologyIds={glowingTechnologyIds}
-              layoutKey={mapLayoutKey}
-            />
-            {isSyncDrafting ? (
-              <div className="sync-draft-actions" role="toolbar" aria-label="草稿同步操作">
-                <button
-                  type="button"
-                  className="graph-action-btn graph-action-btn--confirm"
-                  title="确认提交草稿同步"
-                  aria-label="确认提交草稿同步"
-                  disabled={syncCommitting}
-                  onClick={() => void handleCommitSyncDraft()}
-                >
-                  {syncCommitting ? "…" : "✓"}
-                </button>
-                <button
-                  type="button"
-                  className="graph-action-btn graph-action-btn--cancel"
-                  title="取消草稿同步"
-                  aria-label="取消草稿同步"
-                  disabled={syncCommitting}
-                  onClick={() => void handleDiscardSyncDraft()}
-                >
-                  ✕
-                </button>
+        <div className="deck-view-shell">
+          <div className="deck-view-shell__map">
+            {activeDeckCard ? (
+              <TopologyMap
+                technologies={activeDeckCard.technologies}
+                relations={activeDeckRelations}
+                projects={activeDeckCard.project ? [activeDeckCard.project] : dashboard.projects}
+                selectedTechnologyId={selectedTechnologyId}
+                onSelectTechnology={handleSelectTechnology}
+                onClearSelection={handleClearSelection}
+                onCreateDerived={handleCreateDerived}
+                onCreateDependency={handleCreateDependency}
+                onDeleteDependency={handleDeleteDependency}
+                isDependencyLinkAllowed={isDependencyLinkAllowed}
+                creatingFromId={creatingFromId}
+                glowingTechnologyIds={glowingTechnologyIds}
+                editable
+                layoutKey={activeDeckLayoutKey}
+              />
+            ) : (
+              <div className="deck-view-placeholder" role="status">
+                <p className="deck-view-placeholder__title">选择一个牌组</p>
+                <p className="deck-view-placeholder__hint">左侧会展示该牌组包含的全部节点及其依赖关系。</p>
               </div>
-            ) : null}
+            )}
 
             {selectedTechnologyId ? (
               <div className="workspace-stage__inspector">
@@ -889,24 +1129,166 @@ export function DashboardPage() {
                   relatedProjects={selectedTechnology.relatedProjects}
                   prerequisites={selectedTechnology.prerequisites}
                   unlocks={selectedTechnology.unlocks}
-                  activeProject={selectedProject.project}
-                  activeProjectTechnologies={selectedProject.technologies}
                   onSelectProject={handleSelectProject}
                   onSelectTechnology={handleSelectTechnology}
                   onUpdateTechnology={handleUpdateTechnology}
                   onDeleteTechnology={handleDeleteTechnology}
                   enterEditForTechnologyId={enterEditForTechnologyId}
                   onEnterEditConsumed={handleEnterEditConsumed}
+                  onAppendResource={handleAppendResource}
                 />
               </div>
             ) : null}
-          </>
-        ) : (
-          <div className="deck-view-placeholder" role="status">
-            <p className="deck-view-placeholder__title">牌组视图</p>
-            <p className="deck-view-placeholder__hint">将技术节点收纳为牌组后，会在这里管理牌组。功能开发中。</p>
           </div>
-        )}
+
+          <aside className="deck-sidebar">
+            <div className="deck-sidebar__search-row">
+              <input
+                type="search"
+                value={deckSearchKeyword}
+                onChange={(event) => setDeckSearchKeyword(event.target.value)}
+                placeholder={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
+                aria-label={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
+              />
+              <button
+                type="button"
+                className={`deck-sidebar__action ${isCreatingDeck ? "deck-sidebar__action--confirm" : ""}`}
+                disabled={creatingDeck}
+                onClick={() => {
+                  if (isCreatingDeck) {
+                    void handleConfirmCreateDeck();
+                    return;
+                  }
+                  handleToggleDeckCreateMode();
+                }}
+              >
+                {isCreatingDeck ? (creatingDeck ? "确认中..." : "确认") : "增加牌组"}
+              </button>
+            </div>
+
+            <div className="deck-sidebar__list" aria-label="牌组列表">
+              {isCreatingDeck ? (
+                filteredNodePickerCards.length > 0 ? (
+                  filteredNodePickerCards.map(({ technology, projectCount }) => (
+                    <label
+                      key={technology.id}
+                      className={`deck-card deck-card--node-picker ${
+                        selectedDeckTechnologyIds.includes(technology.id) ? "deck-card--active" : ""
+                      }`}
+                    >
+                      <div className="deck-card__checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedDeckTechnologyIds.includes(technology.id)}
+                          onChange={() => handleToggleDeckTechnology(technology.id)}
+                          aria-label={`选择节点 ${technology.name}`}
+                        />
+                      </div>
+                      <div className="deck-card__meta">
+                        <span>时间 {formatHours(technology.time_spent_hours)}</span>
+                        <span>稀有度 {formatPercent(technology.rarity_index)}</span>
+                        <span>牌组 {projectCount}</span>
+                      </div>
+                      <div className="deck-card__body">
+                        <strong>{technology.name}</strong>
+                        <p>{technology.summary}</p>
+                      </div>
+                    </label>
+                  ))
+                ) : (
+                  <div className="deck-sidebar__empty" role="status">
+                    没有命中该关键词的节点
+                  </div>
+                )
+              ) : filteredDeckCards.length > 0 ? (
+                <>
+                  {pinnedDeckCard ? (
+                    <button
+                      key={pinnedDeckCard.deckId}
+                      type="button"
+                      className={`deck-card deck-card--pinned ${selectedDeckId === pinnedDeckCard.deckId ? "deck-card--active" : ""}`}
+                      onClick={() => handleSelectDeckProject(pinnedDeckCard.deckId)}
+                    >
+                      <div className="deck-card__pinned-badge">
+                        <DeckPinnedIcon />
+                        <span>置顶</span>
+                      </div>
+                      <div className="deck-card__meta">
+                        <span>时间 {formatHours(pinnedDeckCard.totalHours)}</span>
+                        <span>稀有度 {formatPercent(pinnedDeckCard.rarityProduct)}</span>
+                        <span>达成 1人</span>
+                      </div>
+                      <div className="deck-card__title-row">
+                        <strong>{pinnedDeckCard.name}</strong>
+                        <span>{pinnedDeckCard.technologies.length} 张卡牌</span>
+                      </div>
+                      <div className="deck-card__body">
+                        <p>{pinnedDeckCard.summary}</p>
+                      </div>
+                    </button>
+                  ) : null}
+
+                  <div ref={deckListRef} className="deck-sidebar__scroll">
+                    {scrollableDeckCards.map(({ deckId, name, summary, technologies, totalHours, rarityProduct }) => (
+                      <button
+                        key={deckId}
+                        type="button"
+                        ref={(element) => {
+                          deckItemRefs.current.set(deckId, element);
+                        }}
+                        className={`deck-card ${selectedDeckId === deckId ? "deck-card--active" : ""}`}
+                        onClick={() => handleSelectDeckProject(deckId)}
+                      >
+                        <div className="deck-card__meta">
+                          <span>时间 {formatHours(totalHours)}</span>
+                          <span>稀有度 {formatPercent(rarityProduct)}</span>
+                          <span>达成 1人</span>
+                        </div>
+                        <div className="deck-card__title-row">
+                          <strong>{name}</strong>
+                          <span>{technologies.length} 张卡牌</span>
+                        </div>
+                        <div className="deck-card__body">
+                          <p>{summary}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="deck-sidebar__empty" role="status">
+                  没有命中该关键词的牌组
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
+
+        {isSyncDrafting ? (
+          <div className="sync-draft-actions" role="toolbar" aria-label="草稿同步操作">
+            <button
+              type="button"
+              className="graph-action-btn graph-action-btn--confirm"
+              title="确认提交草稿同步"
+              aria-label="确认提交草稿同步"
+              disabled={syncCommitting}
+              onClick={() => void handleCommitSyncDraft()}
+            >
+              {syncCommitting ? "…" : "✓"}
+            </button>
+            <button
+              type="button"
+              className="graph-action-btn graph-action-btn--cancel"
+              title="取消草稿同步"
+              aria-label="取消草稿同步"
+              disabled={syncCommitting}
+              onClick={() => void handleDiscardSyncDraft()}
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
+
       </section>
 
       {isSyncDialogOpen ? (

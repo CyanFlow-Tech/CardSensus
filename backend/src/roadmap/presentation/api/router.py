@@ -6,11 +6,13 @@ from roadmap.application.services import RoadmapQueryService
 from roadmap.presentation.api.schemas import (
     DashboardGraphResponse,
     HealthResponse,
+    ProjectCreateRequest,
     ProjectProfileResponse,
     RelationCreateRequest,
     TechnologyExportResponse,
     TechnologyLayoutBatchRequest,
     TechnologyProfileResponse,
+    TechnologyResourceNoteAppendRequest,
     TechnologySyncRequest,
     TechnologySyncResponse,
     TechnologyUpdateRequest,
@@ -64,6 +66,17 @@ def create_router(service: RoadmapQueryService) -> APIRouter:
             service.update_technology(technology_id, body.model_dump(exclude_unset=True))
         )
 
+    @router.post(
+        "/technologies/{technology_id}/resources",
+        response_model=TechnologyProfileResponse,
+    )
+    def append_technology_resource(
+        technology_id: str, body: TechnologyResourceNoteAppendRequest
+    ) -> TechnologyProfileResponse:
+        return TechnologyProfileResponse.model_validate(
+            service.append_technology_resource_note(technology_id, body.text)
+        )
+
     @router.delete(
         "/technologies/{technology_id}",
         status_code=status.HTTP_204_NO_CONTENT,
@@ -96,5 +109,8 @@ def create_router(service: RoadmapQueryService) -> APIRouter:
     def get_project(project_id: str) -> ProjectProfileResponse:
         return ProjectProfileResponse.model_validate(service.get_project_profile(project_id))
 
-    return router
+    @router.post("/projects", response_model=ProjectProfileResponse)
+    def create_project(body: ProjectCreateRequest) -> ProjectProfileResponse:
+        return ProjectProfileResponse.model_validate(service.create_project(body.technology_ids))
 
+    return router

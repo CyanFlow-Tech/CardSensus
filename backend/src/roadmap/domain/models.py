@@ -55,7 +55,6 @@ class ThresholdPolicy:
 @dataclass(frozen=True)
 class ResourceLink:
     id: str
-    title: str
     url: str
     resource_type: ResourceType
     description: str

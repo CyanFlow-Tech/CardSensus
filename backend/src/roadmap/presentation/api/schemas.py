@@ -16,7 +16,6 @@ class ResourceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    title: str
     url: str
     resource_type: str
     description: str
@@ -110,8 +109,16 @@ class ProjectProfileResponse(BaseModel):
     related_technologies: List[TechnologyResponse]
 
 
+class ProjectCreateRequest(BaseModel):
+    technology_ids: List[str]
+
+
 class HealthResponse(BaseModel):
     status: str
+
+
+class TechnologyResourceNoteAppendRequest(BaseModel):
+    text: str = Field(..., min_length=1)
 
 
 class TechnologyUpdateRequest(BaseModel):
@@ -152,4 +159,3 @@ class TechnologyExportItemResponse(BaseModel):
 
 class TechnologyExportResponse(BaseModel):
     items: List[TechnologyExportItemResponse]
-

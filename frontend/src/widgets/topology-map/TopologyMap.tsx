@@ -42,6 +42,7 @@ interface TopologyMapProps {
   isDependencyLinkAllowed: (dependencyId: string, dependentId: string) => boolean;
   creatingFromId: string | null;
   glowingTechnologyIds: string[];
+  editable?: boolean;
   /** 在创建/删除节点等结构变化后自增，用于触发布局后的 fitView */
   layoutKey: number;
 }
@@ -57,6 +58,7 @@ interface TechnologyNodeData {
   isGlowing: boolean;
   isDependencyDragSource: boolean;
   isDependencyDropTarget: boolean;
+  editable: boolean;
   [key: string]: unknown;
 }
 
@@ -114,7 +116,8 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
     creatingFromId,
     isGlowing,
     isDependencyDragSource,
-    isDependencyDropTarget
+    isDependencyDropTarget,
+    editable
   } = data;
   const rarity = getRarityMeta(technology.rarity_index);
   const isCreating = creatingFromId === technology.id;
@@ -123,24 +126,26 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
     <>
       <Handle type="target" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
       <div className="tech-node-wrap" data-tech-node-id={technology.id}>
-        <div className="tech-node__add-bar">
-          <button
-            type="button"
-            className="tech-node__add-btn"
-            disabled={isCreating}
-            title="在依赖上一层新建节点"
-            aria-label="在依赖上一层新建节点"
-            onClick={(event) => {
-              event.stopPropagation();
-              event.preventDefault();
-              if (!isCreating) {
-                void onCreateDerived(technology.id);
-              }
-            }}
-          >
-            {isCreating ? "…" : "+"}
-          </button>
-        </div>
+        {editable ? (
+          <div className="tech-node__add-bar">
+            <button
+              type="button"
+              className="tech-node__add-btn"
+              disabled={isCreating}
+              title="在依赖上一层新建节点"
+              aria-label="在依赖上一层新建节点"
+              onClick={(event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                if (!isCreating) {
+                  void onCreateDerived(technology.id);
+                }
+              }}
+            >
+              {isCreating ? "…" : "+"}
+            </button>
+          </div>
+        ) : null}
         <button
           type="button"
           className={`tech-node tech-node--${rarity.tier} ${isSelected ? "tech-node--selected" : ""} ${isGlowing ? "tech-node--glow" : ""} ${isDependencyDropTarget ? "tech-node--link-target" : ""}`}
@@ -168,17 +173,19 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
             </div>
           </div>
         </button>
-        <div className={`tech-node__link-zone ${isDependencyDragSource ? "tech-node__link-zone--active" : ""}`}>
-          <button
-            type="button"
-            className={`tech-node__link-anchor ${isDependencyDragSource ? "tech-node__link-anchor--active" : ""}`}
-            title="拖拽创建依赖关系"
-            aria-label="拖拽创建依赖关系"
-            onPointerDown={(event) => {
-              onStartDependencyDrag(technology.id, event);
-            }}
-          />
-        </div>
+        {editable ? (
+          <div className={`tech-node__link-zone ${isDependencyDragSource ? "tech-node__link-zone--active" : ""}`}>
+            <button
+              type="button"
+              className={`tech-node__link-anchor ${isDependencyDragSource ? "tech-node__link-anchor--active" : ""}`}
+              title="拖拽创建依赖关系"
+              aria-label="拖拽创建依赖关系"
+              onPointerDown={(event) => {
+                onStartDependencyDrag(technology.id, event);
+              }}
+            />
+          </div>
+        ) : null}
       </div>
       <Handle type="source" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
     </>
@@ -256,6 +263,7 @@ export function TopologyMap({
   isDependencyLinkAllowed,
   creatingFromId,
   glowingTechnologyIds,
+  editable = true,
   layoutKey
 }: TopologyMapProps) {
   const [viewportReady, setViewportReady] = useState(() => technologies.length === 0);
@@ -398,7 +406,8 @@ export function TopologyMap({
           onStartDependencyDrag: handleStartDependencyDrag,
           isDependencyDragSource: dependencyDrag?.dependentId === technology.id,
           isDependencyDropTarget: dependencyHoverTargetId === technology.id,
-          creatingFromId
+          creatingFromId,
+          editable
         },
         draggable: false,
         sourcePosition: Position.Top,
@@ -411,6 +420,7 @@ export function TopologyMap({
       displayPositions,
       glowIdSet,
       handleStartDependencyDrag,
+      editable,
       onCreateDerived,
       onSelectTechnology,
       projects,
@@ -490,14 +500,14 @@ export function TopologyMap({
           target: relation.target_id,
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed },
-          selectable: true,
-          focusable: true,
+          selectable: editable,
+          focusable: editable,
           data: {
             dependencySourceId: relation.source_id,
             dependencyTargetId: relation.target_id
           }
         })),
-    [relations]
+    [editable, relations]
   );
 
   const relationsSig = useMemo(
@@ -555,8 +565,8 @@ export function TopologyMap({
           nodes={nodes}
           edges={edges}
           onEdgesChange={onEdgesChange}
-          deleteKeyCode="Delete"
-          onEdgesDelete={handleEdgesDelete}
+          deleteKeyCode={editable ? "Delete" : null}
+          onEdgesDelete={editable ? handleEdgesDelete : undefined}
           fitView
           minZoom={0.05}
           fitViewOptions={{ padding: 0.2, minZoom: 0.05 }}

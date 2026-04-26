@@ -53,6 +53,13 @@ class RoadmapQueryService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
         return self.get_technology_profile(new_node.id)
 
+    def create_project(self, technology_ids: List[str]) -> ProjectProfileDTO:
+        try:
+            project = self._repository.create_project(technology_ids)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+        return self.get_project_profile(project.id)
+
     def update_technology_layouts(self, layouts: Dict[str, tuple[float, float]]) -> None:
         try:
             self._repository.update_technology_layouts(layouts)
@@ -121,6 +128,13 @@ class RoadmapQueryService:
             self._repository.delete_technology(technology_id)
         except ValueError as err:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+    def append_technology_resource_note(self, technology_id: str, text: str) -> TechnologyProfileDTO:
+        try:
+            self._repository.append_technology_resource_note(technology_id, text.strip())
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+        return self.get_technology_profile(technology_id)
 
     def get_technology_profile(self, technology_id: str) -> TechnologyProfileDTO:
         technology = self._repository.get_technology(technology_id)
@@ -196,7 +210,6 @@ class RoadmapQueryService:
             resources=[
                 ResourceDTO(
                     id=resource.id,
-                    title=resource.title,
                     url=resource.url,
                     resource_type=resource.resource_type.value,
                     description=resource.description,
@@ -223,4 +236,3 @@ class RoadmapQueryService:
             associated_tech=list(project.associated_tech),
             highlights=list(project.highlights),
         )
-

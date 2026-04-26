@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +31,9 @@ class JsonRoadmapRepository(RoadmapRepository):
         for row in data.get("technologies", []):
             if isinstance(row, dict):
                 row.pop("category", None)
+                for resource in row.get("resources", []):
+                    if isinstance(resource, dict):
+                        resource.pop("title", None)
         self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self._payload.cache_clear()
 
@@ -47,6 +51,50 @@ class JsonRoadmapRepository(RoadmapRepository):
 
     def get_project(self, project_id: str) -> ProjectNode | None:
         return next((item for item in self.list_projects() if item.id == project_id), None)
+
+    def create_project(self, technology_ids: Iterable[str]) -> ProjectNode:
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        technologies = data.get("technologies", [])
+        tech_ids = {str(item.get("id", "")).strip() for item in technologies}
+        normalized_ids = []
+        seen_ids: set[str] = set()
+        for technology_id in technology_ids:
+            value = str(technology_id).strip()
+            if not value or value in seen_ids:
+                continue
+            if value not in tech_ids:
+                msg = f"technology not found: {value}"
+                raise ValueError(msg)
+            seen_ids.add(value)
+            normalized_ids.append(value)
+        if not normalized_ids:
+            msg = "at least one technology is required"
+            raise ValueError(msg)
+
+        existing_projects = data.get("projects", [])
+        deck_index = 1
+        existing_names = {str(project.get("name", "")).strip() for project in existing_projects}
+        while f"新牌组{deck_index}" in existing_names:
+            deck_index += 1
+
+        project_id = f"deck-{uuid.uuid4().hex[:10]}"
+        while any(str(project.get("id", "")).strip() == project_id for project in existing_projects):
+            project_id = f"deck-{uuid.uuid4().hex[:10]}"
+
+        new_project = {
+            "id": project_id,
+            "name": f"新牌组{deck_index}",
+            "summary": "",
+            "repository_url": "",
+            "status": "active",
+            "associated_tech": normalized_ids,
+            "highlights": [],
+        }
+        data["projects"] = [new_project, *existing_projects]
+        self._write_data(data)
+        parsed = self.get_project(project_id)
+        assert parsed is not None
+        return parsed
 
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
@@ -146,6 +194,32 @@ class JsonRoadmapRepository(RoadmapRepository):
         result = self.get_technology(technology_id)
         assert result is not None
         return result
+
+    def append_technology_resource_note(self, technology_id: str, text: str) -> None:
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        row: Dict[str, Any] | None = next(
+            (t for t in data["technologies"] if t["id"] == technology_id),
+            None,
+        )
+        if row is None:
+            msg = f"technology not found: {technology_id}"
+            raise ValueError(msg)
+        resources = list(row.get("resources", []))
+        url_match = re.search(r"(https?://\S+|file://\S+)", text, re.IGNORECASE)
+        primary_url = "#"
+        if url_match:
+            primary_url = url_match.group(0).rstrip(").,;!?\"'」』）】]")
+        new_id = f"res-{uuid.uuid4().hex[:12]}"
+        resources.append(
+            {
+                "id": new_id,
+                "url": primary_url,
+                "resource_type": "note",
+                "description": text,
+            }
+        )
+        row["resources"] = resources
+        self._write_data(data)
 
     def delete_technology(self, technology_id: str) -> None:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
@@ -341,10 +415,9 @@ class JsonRoadmapRepository(RoadmapRepository):
             resources=tuple(
                 ResourceLink(
                     id=resource["id"],
-                    title=resource["title"],
-                    url=resource["url"],
+                    url=resource.get("url", "#"),
                     resource_type=ResourceType(resource["resource_type"]),
-                    description=resource["description"],
+                    description=resource.get("description", ""),
                 )
                 for resource in payload["resources"]
             ),
@@ -368,4 +441,3 @@ class JsonRoadmapRepository(RoadmapRepository):
             associated_tech=tuple(payload["associated_tech"]),
             highlights=tuple(payload["highlights"]),
         )
-

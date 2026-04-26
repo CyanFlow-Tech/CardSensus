@@ -13,7 +13,6 @@ class LayoutDTO:
 @dataclass(frozen=True)
 class ResourceDTO:
     id: str
-    title: str
     url: str
     resource_type: str
     description: str

@@ -1,8 +1,10 @@
+import { PlusOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import type { TechnologyUpdatePayload } from "../../shared/api/roadmapApi";
-import { formatHours, toTitleCase } from "../../shared/lib/format";
+import { LinkifiedText, resourceDisplayText } from "../../shared/lib/linkifyText";
+import { formatHours } from "../../shared/lib/format";
 import { getRarityMeta } from "../../shared/lib/rarity";
 
 interface InspectorPanelProps {
@@ -10,8 +12,6 @@ interface InspectorPanelProps {
   relatedProjects: Project[];
   prerequisites: Technology[];
   unlocks: Technology[];
-  activeProject: Project | null;
-  activeProjectTechnologies: Technology[];
   onSelectProject: (projectId: string) => void;
   onSelectTechnology: (technologyId: string) => void;
   onUpdateTechnology: (technologyId: string, payload: TechnologyUpdatePayload) => Promise<void>;
@@ -19,6 +19,7 @@ interface InspectorPanelProps {
   /** 为某 id 打开时自动进入编辑态（用后即通过 onEnterEditConsumed 清理） */
   enterEditForTechnologyId: string | null;
   onEnterEditConsumed: () => void;
+  onAppendResource?: (text: string) => void | Promise<void>;
 }
 
 function IconPencil() {
@@ -60,14 +61,13 @@ export function InspectorPanel({
   relatedProjects,
   prerequisites,
   unlocks,
-  activeProject,
-  activeProjectTechnologies,
   onSelectProject,
   onSelectTechnology,
   onUpdateTechnology,
   onDeleteTechnology,
   enterEditForTechnologyId,
-  onEnterEditConsumed
+  onEnterEditConsumed,
+  onAppendResource
 }: InspectorPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
   const prevTechIdRef = useRef<string | undefined>(undefined);
@@ -78,6 +78,9 @@ export function InspectorPanel({
   const [draftTime, setDraftTime] = useState(0);
   const [draftRarity, setDraftRarity] = useState(0);
   const [draftUsers, setDraftUsers] = useState(0);
+  const [resourceInputOpen, setResourceInputOpen] = useState(false);
+  const [resourceDraft, setResourceDraft] = useState("");
+  const resourceInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!technology) {
@@ -89,6 +92,17 @@ export function InspectorPanel({
     setDraftRarity(technology.rarity_index);
     setDraftUsers(technology.active_user_count);
   }, [technology]);
+
+  useEffect(() => {
+    setResourceInputOpen(false);
+    setResourceDraft("");
+  }, [technology?.id]);
+
+  useEffect(() => {
+    if (resourceInputOpen) {
+      resourceInputRef.current?.focus();
+    }
+  }, [resourceInputOpen]);
 
   useEffect(() => {
     if (!technology) {
@@ -107,48 +121,6 @@ export function InspectorPanel({
       prevTechIdRef.current = id;
     }
   }, [technology, enterEditForTechnologyId, onEnterEditConsumed]);
-
-  if (activeProject) {
-    return (
-      <aside className="inspector-panel">
-        <div className="inspector-panel__section">
-          <span className="eyebrow">项目视图</span>
-          <h2>{activeProject.name}</h2>
-          <p>{activeProject.summary}</p>
-          <a href={activeProject.repository_url} target="_blank" rel="noreferrer">
-            打开仓库
-          </a>
-        </div>
-
-        <div className="inspector-panel__section">
-          <h3>项目状态</h3>
-          <span className={`project-badge project-badge--${activeProject.status}`}>
-            {toTitleCase(activeProject.status)}
-          </span>
-        </div>
-
-        <div className="inspector-panel__section">
-          <h3>覆盖技术栈</h3>
-          <div className="tag-group">
-            {activeProjectTechnologies.map((t) => (
-              <button key={t.id} type="button" className="tag-button" onClick={() => onSelectTechnology(t.id)}>
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="inspector-panel__section">
-          <h3>项目亮点</h3>
-          <ul className="plain-list">
-            {activeProject.highlights.map((highlight) => (
-              <li key={highlight}>{highlight}</li>
-            ))}
-          </ul>
-        </div>
-      </aside>
-    );
-  }
 
   if (!technology) {
     return (
@@ -199,6 +171,22 @@ export function InspectorPanel({
       /* 错误由父级展示 */
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleConfirmResourceAdd = async () => {
+    const t = resourceDraft.trim();
+    if (!t) {
+      setResourceInputOpen(false);
+      setResourceDraft("");
+      return;
+    }
+    try {
+      await onAppendResource?.(t);
+      setResourceDraft("");
+      setResourceInputOpen(false);
+    } catch {
+      /* 错误由父级展示 */
     }
   };
 
@@ -296,7 +284,7 @@ export function InspectorPanel({
         {isEditing ? (
           <>
             <label className="inspector-field-metric">
-              <span>累计投入（小时）</span>
+              <span>能量（小时）</span>
               <input
                 type="number"
                 className="inspector-field-input"
@@ -307,7 +295,7 @@ export function InspectorPanel({
               />
             </label>
             <label className="inspector-field-metric">
-              <span>稀有度（0–1）</span>
+              <span>品质（0–1）</span>
               <input
                 type="number"
                 className="inspector-field-input"
@@ -319,7 +307,7 @@ export function InspectorPanel({
               />
             </label>
             <label className="inspector-field-metric">
-              <span>点亮用户</span>
+              <span>拥趸</span>
               <input
                 type="number"
                 className="inspector-field-input"
@@ -333,15 +321,15 @@ export function InspectorPanel({
         ) : (
           <>
             <div>
-              <span>累计投入</span>
+              <span>能量</span>
               <strong>{formatHours(technology.time_spent_hours)}</strong>
             </div>
             <div>
-              <span>稀有度</span>
+              <span>品质</span>
               <strong className={`rarity-text--${rarity.colorToken}`}>{rarity.label}</strong>
             </div>
             <div>
-              <span>点亮用户</span>
+              <span>拥趸</span>
               <strong>{technology.active_user_count}</strong>
             </div>
           </>
@@ -378,30 +366,62 @@ export function InspectorPanel({
         </div>
       ) : null}
 
-      <div className="inspector-panel__section">
-        <h3>所在牌组</h3>
-        <div className="project-list">
-          {relatedProjects.map((project) => (
-            <button key={project.id} type="button" className="project-card" onClick={() => onSelectProject(project.id)}>
-              <strong>{project.name}</strong>
-              <span>{project.summary}</span>
-            </button>
-          ))}
+      {relatedProjects.length > 0 ? (
+        <div className="inspector-panel__section">
+          <h3>所在牌组</h3>
+          <div className="project-list">
+            {relatedProjects.map((project) => (
+              <button key={project.id} type="button" className="project-card" onClick={() => onSelectProject(project.id)}>
+                <strong>{project.name}</strong>
+                <span>{project.summary}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="inspector-panel__section">
         <h3>资料聚合</h3>
-        <ul className="plain-list">
+        <ul className="inspector-resources-list">
           {technology.resources.map((resource) => (
-            <li key={resource.id}>
-              <a href={resource.url} target="_blank" rel="noreferrer">
-                {resource.title}
-              </a>
-              <p>{resource.description}</p>
+            <li key={resource.id} className="inspector-resource-item">
+              <p className="inspector-resource-body">
+                <LinkifiedText text={resourceDisplayText(resource)} />
+              </p>
             </li>
           ))}
         </ul>
+        {resourceInputOpen ? (
+          <textarea
+            ref={resourceInputRef}
+            className="inspector-field-textarea inspector-resource-add-input"
+            value={resourceDraft}
+            onChange={(e) => setResourceDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleConfirmResourceAdd();
+              }
+              if (e.key === "Escape") {
+                setResourceInputOpen(false);
+                setResourceDraft("");
+              }
+            }}
+            placeholder="输入内容，Enter 提交，Shift+Enter 换行（链接将自动可点）"
+            aria-label="新建资料"
+            rows={3}
+          />
+        ) : (
+          <button
+            type="button"
+            className="inspector-resource-add"
+            onClick={() => setResourceInputOpen(true)}
+            aria-label="添加资料"
+          >
+            <PlusOutlined className="inspector-resource-add__icon" aria-hidden />
+            <span>添加</span>
+          </button>
+        )}
       </div>
     </aside>
   );

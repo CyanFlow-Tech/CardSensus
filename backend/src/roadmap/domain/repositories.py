@@ -28,6 +28,11 @@ class RoadmapRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def create_project(self, technology_ids: Iterable[str]) -> ProjectNode:
+        """创建一个新牌组，并将其关联到给定技术节点；新牌组应插入到列表顶部。"""
+        raise NotImplementedError
+
+    @abstractmethod
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         """在依赖关系上位于 parent 的上一层新建节点：parent ->(dependency)-> new。"""
         raise NotImplementedError
@@ -65,3 +70,7 @@ class RoadmapRepository(ABC):
         """导出当前节点池，供外部模型生成增量 JSON 使用。"""
         raise NotImplementedError
 
+    @abstractmethod
+    def append_technology_resource_note(self, technology_id: str, text: str) -> None:
+        """在指定技术节点下追加一条笔记型资料（写入 resources 数组）。"""
+        raise NotImplementedError
