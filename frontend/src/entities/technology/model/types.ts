@@ -16,7 +16,6 @@ export interface ResourceItem {
 export interface Technology {
   id: string;
   name: string;
-  category: string;
   hashtags?: string[];
   summary: string;
   time_spent_hours: number;

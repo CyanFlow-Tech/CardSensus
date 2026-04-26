@@ -10,6 +10,7 @@ import {
   type TechnologySyncItemPayload,
   type TechnologyUpdatePayload
 } from "../../shared/api/roadmapApi";
+import { buildLayeredPositions } from "../../shared/lib/graphLayout";
 import { InspectorPanel } from "../../widgets/inspector/InspectorPanel";
 import { TopologyMap } from "../../widgets/topology-map/TopologyMap";
 
@@ -55,7 +56,6 @@ function normalizeSyncItem(item: TechnologySyncItemPayload): TechnologySyncItemP
   return {
     id: item.id?.trim() || undefined,
     name,
-    category: item.category?.trim() || undefined,
     summary: item.summary?.trim() || undefined,
     time_spent_hours: item.time_spent_hours,
     rarity_index: item.rarity_index,
@@ -67,7 +67,6 @@ function toSyncPayloadFromTechnology(technology: Technology): TechnologySyncItem
   return {
     id: technology.id,
     name: technology.name,
-    category: technology.category,
     summary: technology.summary,
     time_spent_hours: technology.time_spent_hours,
     rarity_index: technology.rarity_index,
@@ -131,9 +130,6 @@ function buildSyncPreview(
     if (target) {
       const oldName = target.name.trim();
       target.name = normalized.name;
-      if (normalized.category !== undefined) {
-        target.category = normalized.category;
-      }
       if (normalized.summary !== undefined) {
         target.summary = normalized.summary;
       }
@@ -160,7 +156,6 @@ function buildSyncPreview(
     const newTech: Technology = {
       id: nodeId,
       name: normalized.name,
-      category: normalized.category ?? "未分类",
       summary: normalized.summary ?? "",
       time_spent_hours: Math.max(0, normalized.time_spent_hours ?? 0),
       status: "exploring",
@@ -185,6 +180,39 @@ function buildSyncPreview(
   };
 }
 
+function hasDependencyPath(relations: DashboardGraphResponse["relations"], fromId: string, toId: string): boolean {
+  if (fromId === toId) {
+    return true;
+  }
+  const adjacency = new Map<string, string[]>();
+  relations
+    .filter((relation) => relation.relation_type === "dependency")
+    .forEach((relation) => {
+      const next = adjacency.get(relation.source_id) ?? [];
+      next.push(relation.target_id);
+      adjacency.set(relation.source_id, next);
+    });
+
+  const queue = [fromId];
+  const visited = new Set<string>();
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (current === toId) {
+      return true;
+    }
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    (adjacency.get(current) ?? []).forEach((next) => {
+      if (!visited.has(next)) {
+        queue.push(next);
+      }
+    });
+  }
+  return false;
+}
+
 export function DashboardPage() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("dependency");
   const [dashboard, setDashboard] = useState<DashboardGraphResponse | null>(null);
@@ -204,6 +232,7 @@ export function DashboardPage() {
   const [syncCommitting, setSyncCommitting] = useState(false);
   const [syncDraftChanges, setSyncDraftChanges] = useState<SyncDraftChanges | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [relayoutSaving, setRelayoutSaving] = useState(false);
   const isSyncDrafting = syncDraftChanges !== null;
   const glowingTechnologyIds = syncDraftChanges
     ? [...syncDraftChanges.addedIds, ...syncDraftChanges.updatedIds]
@@ -234,11 +263,30 @@ export function DashboardPage() {
     setEnterEditForTechnologyId(null);
   }, []);
 
-  const handleRelayout = useCallback(() => {
+  const handleRelayout = useCallback(async () => {
+    if (!dashboard) {
+      return;
+    }
+    if (isSyncDrafting) {
+      showToast("草稿同步中，请先确认或取消后再重排布局");
+      return;
+    }
     clearToast();
-    bumpMapLayout();
-    showToast("已触发全局重排");
-  }, [bumpMapLayout, clearToast, showToast]);
+    setRelayoutSaving(true);
+    try {
+      const positions = buildLayeredPositions(dashboard.technologies, dashboard.relations);
+      const items = [...positions.entries()].map(([id, pos]) => ({ id, x: pos.x, y: pos.y }));
+      await roadmapApi.updateTechnologyLayouts(items);
+      const graph = await roadmapApi.getDashboardGraph();
+      setDashboard(graph);
+      bumpMapLayout();
+      showToast("已全局重排并保存布局到数据文件");
+    } catch (requestError) {
+      showToast(requestError instanceof Error ? requestError.message : "保存布局失败");
+    } finally {
+      setRelayoutSaving(false);
+    }
+  }, [bumpMapLayout, clearToast, dashboard, isSyncDrafting, showToast]);
 
   const handleDiscardSyncDraft = useCallback(async () => {
     clearToast();
@@ -366,6 +414,150 @@ export function DashboardPage() {
     }
   };
 
+  const isDependencyLinkAllowed = useCallback(
+    (dependencyId: string, dependentId: string) => {
+      if (!dashboard) {
+        return false;
+      }
+      if (dependencyId === dependentId) {
+        return false;
+      }
+      const exists = dashboard.relations.some(
+        (relation) =>
+          relation.relation_type === "dependency" &&
+          relation.source_id === dependencyId &&
+          relation.target_id === dependentId
+      );
+      if (exists) {
+        return false;
+      }
+      return !hasDependencyPath(dashboard.relations, dependentId, dependencyId);
+    },
+    [dashboard]
+  );
+
+  const handleCreateDependency = useCallback(
+    async (dependencyId: string, dependentId: string) => {
+      if (!dashboard) {
+        return;
+      }
+      if (!isDependencyLinkAllowed(dependencyId, dependentId)) {
+        return;
+      }
+      clearToast();
+
+      if (isSyncDrafting) {
+        setDashboard((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          return {
+            ...prev,
+            relations: [
+              ...prev.relations,
+              {
+                source_id: dependencyId,
+                target_id: dependentId,
+                relation_type: "dependency"
+              }
+            ]
+          };
+        });
+
+        setSelectedTechnology((prev) => {
+          if (!prev.technology || prev.technology.id !== dependentId) {
+            return prev;
+          }
+          const dependency = dashboard.technologies.find((technology) => technology.id === dependencyId);
+          if (!dependency) {
+            return prev;
+          }
+          if (prev.prerequisites.some((item) => item.id === dependencyId)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            prerequisites: [...prev.prerequisites, dependency]
+          };
+        });
+
+        showToast("已在草稿中创建依赖，确认同步后写入数据库");
+        return;
+      }
+
+      try {
+        await roadmapApi.addDependencyRelation(dependencyId, dependentId);
+        const graph = await roadmapApi.getDashboardGraph();
+        setDashboard(graph);
+        showToast("已创建依赖关系并已保存");
+      } catch (requestError) {
+        showToast(requestError instanceof Error ? requestError.message : "保存依赖关系失败");
+      }
+    },
+    [clearToast, dashboard, isDependencyLinkAllowed, isSyncDrafting, showToast]
+  );
+
+  const handleDeleteDependency = useCallback(
+    async (dependencyId: string, dependentId: string) => {
+      if (!dashboard) {
+        return;
+      }
+      clearToast();
+
+      if (isSyncDrafting) {
+        setDashboard((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          return {
+            ...prev,
+            relations: prev.relations.filter(
+              (relation) =>
+                !(
+                  relation.relation_type === "dependency" &&
+                  relation.source_id === dependencyId &&
+                  relation.target_id === dependentId
+                )
+            )
+          };
+        });
+
+        setSelectedTechnology((prev) => {
+          if (!prev.technology) {
+            return prev;
+          }
+          const tid = prev.technology.id;
+          let prerequisites = prev.prerequisites;
+          let unlocks = prev.unlocks;
+          if (tid === dependentId) {
+            prerequisites = prerequisites.filter((item) => item.id !== dependencyId);
+          }
+          if (tid === dependencyId) {
+            unlocks = unlocks.filter((item) => item.id !== dependentId);
+          }
+          if (prerequisites === prev.prerequisites && unlocks === prev.unlocks) {
+            return prev;
+          }
+          return { ...prev, prerequisites, unlocks };
+        });
+
+        showToast("已在草稿中删除依赖，确认同步后写入数据库");
+        return;
+      }
+
+      try {
+        await roadmapApi.deleteDependencyRelation(dependencyId, dependentId);
+        const graph = await roadmapApi.getDashboardGraph();
+        setDashboard(graph);
+        showToast("已删除依赖关系并已保存");
+      } catch (requestError) {
+        showToast(requestError instanceof Error ? requestError.message : "删除依赖关系失败");
+        throw requestError instanceof Error ? requestError : new Error("删除依赖关系失败");
+      }
+    },
+    [clearToast, dashboard, isSyncDrafting, showToast]
+  );
+
   const handleUpdateTechnology = async (technologyId: string, payload: TechnologyUpdatePayload) => {
     if (isSyncDrafting && dashboard) {
       clearToast();
@@ -380,7 +572,6 @@ export function DashboardPage() {
               ? {
                   ...technology,
                   name: payload.name ?? technology.name,
-                  category: payload.category ?? technology.category,
                   summary: payload.summary ?? technology.summary,
                   time_spent_hours: payload.time_spent_hours ?? technology.time_spent_hours,
                   rarity_index: payload.rarity_index ?? technology.rarity_index,
@@ -403,7 +594,6 @@ export function DashboardPage() {
             ? {
                 ...technology,
                 name: payload.name ?? technology.name,
-                category: payload.category ?? technology.category,
                 summary: payload.summary ?? technology.summary,
                 time_spent_hours: payload.time_spent_hours ?? technology.time_spent_hours,
                 rarity_index: payload.rarity_index ?? technology.rarity_index,
@@ -491,16 +681,18 @@ export function DashboardPage() {
   };
 
   const handleCopyModelPrompt = async () => {
-    const prompt = `你是技术知识图谱整理助手。请根据已上传的文件“blog.md”与“current.json”生成一个 JSON 列表（array）。每个元素表示一个待同步节点，字段如下：
-- name (必填，尽量使用中文，专有名词可以使用英文)
+    const prompt = `你是技术知识图谱整理助手，善于对代码、博客文章、技术文档等进行归纳总结，提取出其中的技术栈。` +
+    `现有一个DAG图谱，以节点表示技术，边表示依赖关系。我需要你根据现有节点内容，生成针对上传文件的图谱更新JSON列表。` +
+    `如果上传的文件中包含current.json，则现有节点定义在该文件中，否则现有节点为空。`+
+    `你生成的JSON列表的每一项必须满足以下数据结构：
+- name (必填，尽量使用中文，专有名词可以使用英文，保持简短)
 - id (可选，若已有节点请复用其 id)
-- category
-- summary
-- time_spent_hours
-- rarity_index (0~1)
-- active_user_count
+- summary (描述该技术的定义、用途、特点、优势等，保持简短)
+- time_spent_hours (评估我在上传文件中实现这个技术所花费的时间)
+- rarity_index (设为默认值1)
+- active_user_count (设为默认值1)
 
-目标：
+要求：
 1) 优先复用当前节点池里语义最接近的节点（输出其 id 并可更新其他字段）。
 2) 若没有合适节点，则创建新节点（不提供 id 也可）。
 3) 仅输出 JSON 列表，不要输出 Markdown、解释、代码块围栏。
@@ -642,11 +834,12 @@ export function DashboardPage() {
               <button
                 type="button"
                 className="graph-action-btn graph-action-btn--icon"
-                title="全局重排节点布局"
+                title="全局重排节点布局并写入数据文件"
                 aria-label="全局重排节点布局"
-                onClick={handleRelayout}
+                disabled={isSyncDrafting || relayoutSaving}
+                onClick={() => void handleRelayout()}
               >
-                <ReloadOutlined />
+                {relayoutSaving ? <LoadingOutlined spin /> : <ReloadOutlined />}
               </button>
             </div>
             <TopologyMap
@@ -657,6 +850,9 @@ export function DashboardPage() {
               onSelectTechnology={handleSelectTechnology}
               onClearSelection={handleClearSelection}
               onCreateDerived={handleCreateDerived}
+              onCreateDependency={handleCreateDependency}
+              onDeleteDependency={handleDeleteDependency}
+              isDependencyLinkAllowed={isDependencyLinkAllowed}
               creatingFromId={creatingFromId}
               glowingTechnologyIds={glowingTechnologyIds}
               layoutKey={mapLayoutKey}
@@ -722,7 +918,7 @@ export function DashboardPage() {
               className="modal-json-input"
               value={syncJsonText}
               onChange={(event) => setSyncJsonText(event.target.value)}
-              placeholder='[\n  {"name":"Neo4j","category":"Database","summary":"图数据库","time_spent_hours":0,"rarity_index":0.72,"active_user_count":0}\n]'
+              placeholder='[\n  {"name":"Neo4j","summary":"图数据库","time_spent_hours":0,"rarity_index":0.72,"active_user_count":0}\n]'
             />
             <div className="modal-actions">
               <button type="button" className="modal-btn" onClick={() => setIsSyncDialogOpen(false)}>
@@ -743,4 +939,3 @@ export function DashboardPage() {
     </main>
   );
 }
-

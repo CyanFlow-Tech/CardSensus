@@ -1,4 +1,4 @@
-import type { Technology } from "../../entities/technology/model/types";
+import type { Technology, TechnologyStatus } from "../../entities/technology/model/types";
 import { formatHours, formatPercent } from "../../shared/lib/format";
 import { StatusPill } from "../../shared/ui/StatusPill";
 
@@ -8,19 +8,33 @@ interface KanbanBoardProps {
   onSelectTechnology: (technologyId: string) => void;
 }
 
+const KANBAN_STATUS_ORDER: TechnologyStatus[] = ["exploring", "proficient", "expert"];
+
+const KANBAN_STATUS_LABEL: Record<TechnologyStatus, string> = {
+  exploring: "探索期",
+  proficient: "熟练期",
+  expert: "专精期"
+};
+
 export function KanbanBoard({ technologies, selectedTechnologyId, onSelectTechnology }: KanbanBoardProps) {
-  const categories = technologies.reduce<Record<string, Technology[]>>((accumulator, technology) => {
-    accumulator[technology.category] = accumulator[technology.category] || [];
-    accumulator[technology.category].push(technology);
+  const emptyByStatus: Record<TechnologyStatus, Technology[]> = {
+    exploring: [],
+    proficient: [],
+    expert: []
+  };
+  const byStatus = technologies.reduce<Record<TechnologyStatus, Technology[]>>((accumulator, technology) => {
+    accumulator[technology.status].push(technology);
     return accumulator;
-  }, {});
+  }, emptyByStatus);
 
   return (
     <section className="kanban-board">
-      {Object.entries(categories).map(([category, items]) => (
-        <article key={category} className="kanban-column">
+      {KANBAN_STATUS_ORDER.map((status) => {
+        const items = byStatus[status];
+        return (
+        <article key={status} className="kanban-column">
           <header>
-            <h3>{category}</h3>
+            <h3>{KANBAN_STATUS_LABEL[status]}</h3>
             <span>{items.length} 个节点</span>
           </header>
           <div className="kanban-column__body">
@@ -44,7 +58,8 @@ export function KanbanBoard({ technologies, selectedTechnologyId, onSelectTechno
             ))}
           </div>
         </article>
-      ))}
+        );
+      })}
     </section>
   );
 }

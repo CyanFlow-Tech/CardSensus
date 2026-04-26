@@ -65,7 +65,6 @@ class ResourceLink:
 class TechnologyNode:
     id: str
     name: str
-    category: str
     summary: str
     time_spent_hours: float
     rarity_index: float

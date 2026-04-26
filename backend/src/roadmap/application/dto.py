@@ -23,7 +23,6 @@ class ResourceDTO:
 class TechnologyDTO:
     id: str
     name: str
-    category: str
     summary: str
     time_spent_hours: float
     status: str
@@ -61,7 +60,6 @@ class ProjectDTO:
 class SummaryDTO:
     total_technologies: int
     total_projects: int
-    active_categories: int
     expert_nodes: int
 
 

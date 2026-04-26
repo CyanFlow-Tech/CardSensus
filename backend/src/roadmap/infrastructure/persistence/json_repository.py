@@ -26,6 +26,13 @@ class JsonRoadmapRepository(RoadmapRepository):
         default_path = Path(__file__).resolve().parents[4] / "data" / "seed.json"
         self._data_file = data_file or default_path
 
+    def _write_data(self, data: Dict[str, Any]) -> None:
+        for row in data.get("technologies", []):
+            if isinstance(row, dict):
+                row.pop("category", None)
+        self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self._payload.cache_clear()
+
     def list_technologies(self) -> Iterable[TechnologyNode]:
         return self._payload()["technologies"]
 
@@ -57,11 +64,64 @@ class JsonRoadmapRepository(RoadmapRepository):
         data["relations"].append(
             {"source_id": parent_id, "target_id": new_id, "relation_type": "dependency"}
         )
-        self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._payload.cache_clear()
+        self._write_data(data)
         parsed = self.get_technology(new_id)
         assert parsed is not None
         return parsed
+
+    def add_dependency_relation(self, source_id: str, target_id: str) -> None:
+        if source_id == target_id:
+            msg = "cannot create self-dependency"
+            raise ValueError(msg)
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        tech_ids = {str(t["id"]) for t in data["technologies"]}
+        if source_id not in tech_ids:
+            msg = f"source technology not found: {source_id}"
+            raise ValueError(msg)
+        if target_id not in tech_ids:
+            msg = f"target technology not found: {target_id}"
+            raise ValueError(msg)
+        for r in data.get("relations", []):
+            if (
+                r.get("relation_type") == "dependency"
+                and str(r.get("source_id", "")) == source_id
+                and str(r.get("target_id", "")) == target_id
+            ):
+                return
+        data["relations"].append(
+            {"source_id": source_id, "target_id": target_id, "relation_type": "dependency"}
+        )
+        self._write_data(data)
+
+    def delete_dependency_relation(self, source_id: str, target_id: str) -> None:
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        before = len(data.get("relations", []))
+        data["relations"] = [
+            r
+            for r in data.get("relations", [])
+            if not (
+                r.get("relation_type") == "dependency"
+                and str(r.get("source_id", "")) == source_id
+                and str(r.get("target_id", "")) == target_id
+            )
+        ]
+        if len(data["relations"]) == before:
+            msg = f"dependency relation not found: {source_id} -> {target_id}"
+            raise ValueError(msg)
+        self._write_data(data)
+
+    def update_technology_layouts(self, layouts: Mapping[str, tuple[float, float]]) -> None:
+        if not layouts:
+            return
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        by_id = {str(t["id"]): t for t in data["technologies"]}
+        for tech_id, (x, y) in layouts.items():
+            row = by_id.get(str(tech_id))
+            if row is None:
+                msg = f"technology not found: {tech_id}"
+                raise ValueError(msg)
+            row["layout"] = {"x": float(x), "y": float(y)}
+        self._write_data(data)
 
     def update_technology(self, technology_id: str, updates: Mapping[str, Any]) -> TechnologyNode:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
@@ -74,7 +134,6 @@ class JsonRoadmapRepository(RoadmapRepository):
             raise ValueError(msg)
         allowed = {
             "name",
-            "category",
             "summary",
             "time_spent_hours",
             "rarity_index",
@@ -83,8 +142,7 @@ class JsonRoadmapRepository(RoadmapRepository):
         for key, value in updates.items():
             if key in allowed and value is not None:
                 row[key] = value
-        self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._payload.cache_clear()
+        self._write_data(data)
         result = self.get_technology(technology_id)
         assert result is not None
         return result
@@ -138,8 +196,7 @@ class JsonRoadmapRepository(RoadmapRepository):
             associated = project.get("associated_tech", [])
             if technology_id in associated:
                 project["associated_tech"] = [x for x in associated if x != technology_id]
-        self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._payload.cache_clear()
+        self._write_data(data)
 
     def sync_technologies(self, items: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
@@ -176,7 +233,6 @@ class JsonRoadmapRepository(RoadmapRepository):
             if existing_row is not None:
                 old_name = str(existing_row.get("name", "")).strip()
                 existing_row["name"] = name
-                existing_row["category"] = str(item.get("category", existing_row.get("category", "未分类")))
                 existing_row["summary"] = str(item.get("summary", existing_row.get("summary", "")))
                 existing_row["time_spent_hours"] = float(item.get("time_spent_hours", existing_row.get("time_spent_hours", 0.0)))
                 existing_row["rarity_index"] = min(
@@ -200,7 +256,6 @@ class JsonRoadmapRepository(RoadmapRepository):
                 node_id = f"tech-{uuid.uuid4().hex[:10]}"
 
             row = self._build_default_technology_row(node_id, name=name)
-            row["category"] = str(item.get("category", row["category"]))
             row["summary"] = str(item.get("summary", row["summary"]))
             row["time_spent_hours"] = float(item.get("time_spent_hours", row["time_spent_hours"]))
             row["rarity_index"] = min(1.0, max(0.0, float(item.get("rarity_index", row["rarity_index"]))))
@@ -212,8 +267,7 @@ class JsonRoadmapRepository(RoadmapRepository):
             existing_by_name[name] = row
             added_ids.append(node_id)
 
-        self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._payload.cache_clear()
+        self._write_data(data)
         return {"added_ids": added_ids, "updated_ids": updated_ids, "skipped_names": skipped_names}
 
     def export_technologies(self) -> List[Dict[str, Any]]:
@@ -221,7 +275,6 @@ class JsonRoadmapRepository(RoadmapRepository):
             {
                 "id": tech.id,
                 "name": tech.name,
-                "category": tech.category,
                 "summary": tech.summary,
                 "time_spent_hours": tech.time_spent_hours,
                 "rarity_index": tech.rarity_index,
@@ -234,7 +287,6 @@ class JsonRoadmapRepository(RoadmapRepository):
         return {
             "id": technology_id,
             "name": name,
-            "category": "未分类",
             "summary": "",
             "time_spent_hours": 0.0,
             "rarity_index": 0.5,
@@ -269,7 +321,6 @@ class JsonRoadmapRepository(RoadmapRepository):
         return TechnologyNode(
             id=payload["id"],
             name=payload["name"],
-            category=payload["category"],
             summary=payload["summary"],
             time_spent_hours=payload["time_spent_hours"],
             rarity_index=payload["rarity_index"],

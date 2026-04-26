@@ -27,7 +27,6 @@ class TechnologyResponse(BaseModel):
 
     id: str
     name: str
-    category: str
     summary: str
     time_spent_hours: float
     status: str
@@ -50,6 +49,22 @@ class RelationResponse(BaseModel):
     relation_type: str
 
 
+class RelationCreateRequest(BaseModel):
+    source_id: str
+    target_id: str
+    relation_type: str = "dependency"
+
+
+class TechnologyLayoutItemRequest(BaseModel):
+    id: str
+    x: float
+    y: float
+
+
+class TechnologyLayoutBatchRequest(BaseModel):
+    items: List[TechnologyLayoutItemRequest]
+
+
 class ProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,7 +82,6 @@ class SummaryResponse(BaseModel):
 
     total_technologies: int
     total_projects: int
-    active_categories: int
     expert_nodes: int
 
 
@@ -102,7 +116,6 @@ class HealthResponse(BaseModel):
 
 class TechnologyUpdateRequest(BaseModel):
     name: Optional[str] = None
-    category: Optional[str] = None
     summary: Optional[str] = None
     time_spent_hours: Optional[float] = Field(default=None, ge=0)
     rarity_index: Optional[float] = Field(default=None, ge=0, le=1)
@@ -112,7 +125,6 @@ class TechnologyUpdateRequest(BaseModel):
 class TechnologySyncItemRequest(BaseModel):
     id: Optional[str] = None
     name: str
-    category: Optional[str] = None
     summary: Optional[str] = None
     time_spent_hours: Optional[float] = Field(default=None, ge=0)
     rarity_index: Optional[float] = Field(default=None, ge=0, le=1)
@@ -132,7 +144,6 @@ class TechnologySyncResponse(BaseModel):
 class TechnologyExportItemResponse(BaseModel):
     id: str
     name: str
-    category: str
     summary: str
     time_spent_hours: float
     rarity_index: float

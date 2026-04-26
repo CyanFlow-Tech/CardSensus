@@ -1,11 +1,10 @@
 import type { Project } from "../../entities/project/model/types";
 import type { Relation, Technology, TechnologyDetail } from "../../entities/technology/model/types";
-import { httpDelete, httpGet, httpPatch, httpPost } from "./http";
+import { httpDelete, httpGet, httpPatch, httpPatchNoContent, httpPost, httpPostNoContent } from "./http";
 
 export interface Summary {
   total_technologies: number;
   total_projects: number;
-  active_categories: number;
   expert_nodes: number;
 }
 
@@ -30,7 +29,6 @@ export interface ProjectProfileResponse {
 
 export interface TechnologyUpdatePayload {
   name?: string;
-  category?: string;
   summary?: string;
   time_spent_hours?: number;
   rarity_index?: number;
@@ -40,7 +38,6 @@ export interface TechnologyUpdatePayload {
 export interface TechnologySyncItemPayload {
   id?: string;
   name: string;
-  category?: string;
   summary?: string;
   time_spent_hours?: number;
   rarity_index?: number;
@@ -56,7 +53,6 @@ export interface TechnologySyncResponse {
 export interface TechnologyExportItem {
   id: string;
   name: string;
-  category: string;
   summary: string;
   time_spent_hours: number;
   rarity_index: number;
@@ -67,8 +63,26 @@ export interface TechnologyExportResponse {
   items: TechnologyExportItem[];
 }
 
+export interface TechnologyLayoutItemPayload {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export const roadmapApi = {
   getDashboardGraph: () => httpGet<DashboardGraphResponse>("/graph"),
+  addDependencyRelation: (sourceId: string, targetId: string) =>
+    httpPostNoContent("/relations", {
+      source_id: sourceId,
+      target_id: targetId,
+      relation_type: "dependency"
+    }),
+  deleteDependencyRelation: (sourceId: string, targetId: string) =>
+    httpDelete(
+      `/relations?${new URLSearchParams({ source_id: sourceId, target_id: targetId }).toString()}`
+    ),
+  updateTechnologyLayouts: (items: TechnologyLayoutItemPayload[]) =>
+    httpPatchNoContent("/technologies/layout", { items }),
   getTechnologyProfile: (technologyId: string) =>
     httpGet<TechnologyProfileResponse>(`/technologies/${technologyId}`),
   createDerivedTechnology: (parentId: string) =>

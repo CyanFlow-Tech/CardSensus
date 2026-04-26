@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from typing import Dict, List
 
 from fastapi import HTTPException, status
@@ -16,7 +17,7 @@ from roadmap.application.dto import (
     TechnologyDetailDTO,
     TechnologyProfileDTO,
 )
-from roadmap.domain.models import ProjectNode, RelationEdge, TechnologyNode
+from roadmap.domain.models import ProjectNode, RelationEdge, RelationType, TechnologyNode
 from roadmap.domain.repositories import RoadmapRepository
 from roadmap.domain.services import TechnologyStatusPolicy
 
@@ -35,7 +36,6 @@ class RoadmapQueryService:
         summary = SummaryDTO(
             total_technologies=len(technology_dtos),
             total_projects=len(projects),
-            active_categories=len({item.category for item in technology_dtos}),
             expert_nodes=sum(1 for item in technology_dtos if item.status == "expert"),
         )
 
@@ -52,6 +52,54 @@ class RoadmapQueryService:
         except ValueError as err:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
         return self.get_technology_profile(new_node.id)
+
+    def update_technology_layouts(self, layouts: Dict[str, tuple[float, float]]) -> None:
+        try:
+            self._repository.update_technology_layouts(layouts)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+    def add_dependency_relation(self, source_id: str, target_id: str) -> None:
+        relations = [r for r in self._repository.list_relations() if r.relation_type == RelationType.DEPENDENCY]
+        if any(r.source_id == source_id and r.target_id == target_id for r in relations):
+            return
+        if self._would_create_dependency_cycle(relations, source_id, target_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="this dependency would create a cycle",
+            )
+        try:
+            self._repository.add_dependency_relation(source_id, target_id)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+    def delete_dependency_relation(self, source_id: str, target_id: str) -> None:
+        try:
+            self._repository.delete_dependency_relation(source_id, target_id)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+    @staticmethod
+    def _would_create_dependency_cycle(
+        existing: List[RelationEdge],
+        source_id: str,
+        target_id: str,
+    ) -> bool:
+        """New edge source_id -> target_id; cycle iff target can already reach source along dependency edges."""
+        adj: Dict[str, List[str]] = defaultdict(list)
+        for r in existing:
+            adj[r.source_id].append(r.target_id)
+        queue: deque[str] = deque([target_id])
+        visited: set[str] = set()
+        while queue:
+            node = queue.popleft()
+            if node == source_id:
+                return True
+            if node in visited:
+                continue
+            visited.add(node)
+            queue.extend(adj[node])
+        return False
 
     def sync_technologies(self, items: List[dict]) -> Dict[str, List[str]]:
         return self._repository.sync_technologies(items)
@@ -131,7 +179,6 @@ class RoadmapQueryService:
         return TechnologyDTO(
             id=technology.id,
             name=technology.name,
-            category=technology.category,
             summary=technology.summary,
             time_spent_hours=technology.time_spent_hours,
             status=status_value,

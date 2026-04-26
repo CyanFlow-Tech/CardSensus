@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from roadmap.application.services import RoadmapQueryService
 from roadmap.presentation.api.schemas import (
     DashboardGraphResponse,
     HealthResponse,
     ProjectProfileResponse,
+    RelationCreateRequest,
     TechnologyExportResponse,
+    TechnologyLayoutBatchRequest,
     TechnologyProfileResponse,
     TechnologySyncRequest,
     TechnologySyncResponse,
@@ -25,6 +27,26 @@ def create_router(service: RoadmapQueryService) -> APIRouter:
     @router.get("/graph", response_model=DashboardGraphResponse)
     def get_graph() -> DashboardGraphResponse:
         return DashboardGraphResponse.model_validate(service.get_dashboard_graph())
+
+    @router.post("/relations", status_code=status.HTTP_204_NO_CONTENT)
+    def add_relation(body: RelationCreateRequest) -> Response:
+        if body.relation_type != "dependency":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="only dependency relations are supported")
+        service.add_dependency_relation(body.source_id, body.target_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.delete("/relations", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_relation(
+        source_id: str = Query(..., min_length=1),
+        target_id: str = Query(..., min_length=1),
+    ) -> Response:
+        service.delete_dependency_relation(source_id, target_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.patch("/technologies/layout", status_code=status.HTTP_204_NO_CONTENT)
+    def patch_technology_layouts(body: TechnologyLayoutBatchRequest) -> Response:
+        service.update_technology_layouts({item.id: (item.x, item.y) for item in body.items})
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get(
         "/technologies/export",

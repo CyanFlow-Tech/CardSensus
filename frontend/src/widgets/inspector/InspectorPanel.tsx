@@ -74,7 +74,6 @@ export function InspectorPanel({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [draftName, setDraftName] = useState("");
-  const [draftCategory, setDraftCategory] = useState("");
   const [draftSummary, setDraftSummary] = useState("");
   const [draftTime, setDraftTime] = useState(0);
   const [draftRarity, setDraftRarity] = useState(0);
@@ -85,7 +84,6 @@ export function InspectorPanel({
       return;
     }
     setDraftName(technology.name);
-    setDraftCategory(technology.category);
     setDraftSummary(technology.summary);
     setDraftTime(technology.time_spent_hours);
     setDraftRarity(technology.rarity_index);
@@ -156,7 +154,7 @@ export function InspectorPanel({
     return (
       <aside className="inspector-panel inspector-panel--placeholder">
         <h2>选择一个技术节点</h2>
-        <p>查看该节点的熟练度状态、前置依赖、关联项目与沉淀资料。</p>
+        <p>查看该节点的熟练度状态、前置依赖、所在牌组与沉淀资料。</p>
       </aside>
     );
   }
@@ -168,7 +166,6 @@ export function InspectorPanel({
     try {
       await onUpdateTechnology(technology.id, {
         name: draftName,
-        category: draftCategory,
         summary: draftSummary,
         time_spent_hours: draftTime,
         rarity_index: draftRarity,
@@ -184,7 +181,6 @@ export function InspectorPanel({
 
   const handleCancel = () => {
     setDraftName(technology.name);
-    setDraftCategory(technology.category);
     setDraftSummary(technology.summary);
     setDraftTime(technology.time_spent_hours);
     setDraftRarity(technology.rarity_index);
@@ -214,19 +210,6 @@ export function InspectorPanel({
             {isEditing ? (
               <input
                 type="text"
-                className="inspector-field-input inspector-field-input--eyebrow"
-                value={draftCategory}
-                onChange={(e) => setDraftCategory(e.target.value)}
-                placeholder="分类"
-                aria-label="分类"
-              />
-            ) : (
-              <span className="eyebrow">{technology.category}</span>
-            )}
-
-            {isEditing ? (
-              <input
-                type="text"
                 className="inspector-field-input inspector-field-input--title"
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
@@ -235,19 +218,6 @@ export function InspectorPanel({
               />
             ) : (
               <h2>{technology.name}</h2>
-            )}
-
-            {isEditing ? (
-              <textarea
-                className="inspector-field-textarea"
-                value={draftSummary}
-                onChange={(e) => setDraftSummary(e.target.value)}
-                placeholder="简介"
-                rows={4}
-                aria-label="简介"
-              />
-            ) : (
-              <p>{technology.summary}</p>
             )}
           </div>
 
@@ -304,6 +274,21 @@ export function InspectorPanel({
               </>
             )}
           </div>
+        </div>
+
+        <div className="inspector-panel__intro">
+          {isEditing ? (
+            <textarea
+              className="inspector-field-textarea inspector-field-textarea--intro"
+              value={draftSummary}
+              onChange={(e) => setDraftSummary(e.target.value)}
+              placeholder="简介"
+              rows={4}
+              aria-label="简介"
+            />
+          ) : (
+            <p className="inspector-panel__intro-body">{technology.summary}</p>
+          )}
         </div>
       </div>
 
@@ -363,34 +348,38 @@ export function InspectorPanel({
         )}
       </div>
 
-      <div className="inspector-panel__section">
-        <h3>依赖关系</h3>
-        <div className="dependency-block">
-          <span>前置</span>
-          <div className="tag-group">
-            {prerequisites.length === 0 ? <em>无</em> : null}
-            {prerequisites.map((item) => (
-              <button key={item.id} type="button" className="tag-button" onClick={() => onSelectTechnology(item.id)}>
-                {item.name}
-              </button>
-            ))}
-          </div>
+      {prerequisites.length > 0 || unlocks.length > 0 ? (
+        <div className="inspector-panel__section">
+          <h3>依赖关系</h3>
+          {prerequisites.length > 0 ? (
+            <div className="dependency-block">
+              <span>前置</span>
+              <div className="tag-group">
+                {prerequisites.map((item) => (
+                  <button key={item.id} type="button" className="tag-button" onClick={() => onSelectTechnology(item.id)}>
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {unlocks.length > 0 ? (
+            <div className="dependency-block">
+              <span>解锁</span>
+              <div className="tag-group">
+                {unlocks.map((item) => (
+                  <button key={item.id} type="button" className="tag-button" onClick={() => onSelectTechnology(item.id)}>
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
-        <div className="dependency-block">
-          <span>解锁</span>
-          <div className="tag-group">
-            {unlocks.length === 0 ? <em>无</em> : null}
-            {unlocks.map((item) => (
-              <button key={item.id} type="button" className="tag-button" onClick={() => onSelectTechnology(item.id)}>
-                {item.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      ) : null}
 
       <div className="inspector-panel__section">
-        <h3>关联项目</h3>
+        <h3>所在牌组</h3>
         <div className="project-list">
           {relatedProjects.map((project) => (
             <button key={project.id} type="button" className="project-card" onClick={() => onSelectProject(project.id)}>

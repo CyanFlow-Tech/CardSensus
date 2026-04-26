@@ -6,8 +6,7 @@ interface SummaryPanelProps {
 
 const items = [
   { key: "total_technologies", label: "技术节点" },
-  { key: "total_projects", label: "关联项目" },
-  { key: "active_categories", label: "技术群" },
+  { key: "total_projects", label: "牌组" },
   { key: "expert_nodes", label: "专精节点" }
 ] as const;
 

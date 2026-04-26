@@ -33,6 +33,21 @@ class RoadmapRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def add_dependency_relation(self, source_id: str, target_id: str) -> None:
+        """追加一条 dependency：target 依赖 source（与既有边重复则静默跳过）。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_dependency_relation(self, source_id: str, target_id: str) -> None:
+        """删除一条 dependency；不存在则抛 ValueError。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_technology_layouts(self, layouts: Mapping[str, tuple[float, float]]) -> None:
+        """批量更新节点在图谱中的 layout.x / layout.y（写入持久化）。"""
+        raise NotImplementedError
+
+    @abstractmethod
     def update_technology(self, technology_id: str, updates: Mapping[str, Any]) -> TechnologyNode:
         raise NotImplementedError
 
