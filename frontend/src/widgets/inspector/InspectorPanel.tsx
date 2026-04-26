@@ -251,11 +251,23 @@ export function InspectorPanel({
             )}
           </div>
 
-          <div className="inspector-panel__tools" role="toolbar" aria-label="编辑操作">
+          <div className="inspector-panel__tools" role="toolbar" aria-label="节点操作">
             {!isEditing && (
-              <button type="button" className="inspector-icon-btn" title="编辑" onClick={() => setIsEditing(true)} aria-label="进入编辑">
-                <IconPencil />
-              </button>
+              <>
+                <button type="button" className="inspector-icon-btn" title="编辑" onClick={() => setIsEditing(true)} aria-label="进入编辑">
+                  <IconPencil />
+                </button>
+                <button
+                  type="button"
+                  className="inspector-icon-btn inspector-icon-btn--danger"
+                  title="删除"
+                  disabled={deleting}
+                  onClick={handleDelete}
+                  aria-label="删除节点"
+                >
+                  <IconTrash />
+                </button>
+              </>
             )}
             {isEditing && (
               <>
@@ -271,16 +283,6 @@ export function InspectorPanel({
                 </button>
                 <button
                   type="button"
-                  className="inspector-icon-btn inspector-icon-btn--danger"
-                  title="删除"
-                  disabled={saving || deleting}
-                  onClick={handleDelete}
-                  aria-label="删除节点"
-                >
-                  <IconTrash />
-                </button>
-                <button
-                  type="button"
                   className="inspector-icon-btn"
                   title="取消"
                   disabled={saving}
@@ -288,6 +290,16 @@ export function InspectorPanel({
                   aria-label="取消编辑"
                 >
                   <IconX />
+                </button>
+                <button
+                  type="button"
+                  className="inspector-icon-btn inspector-icon-btn--danger"
+                  title="删除"
+                  disabled={saving || deleting}
+                  onClick={handleDelete}
+                  aria-label="删除节点"
+                >
+                  <IconTrash />
                 </button>
               </>
             )}

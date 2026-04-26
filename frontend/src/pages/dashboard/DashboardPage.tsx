@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CopyOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined } from "@ant-design/icons";
+import { CopyOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
@@ -234,6 +234,12 @@ export function DashboardPage() {
     setEnterEditForTechnologyId(null);
   }, []);
 
+  const handleRelayout = useCallback(() => {
+    clearToast();
+    bumpMapLayout();
+    showToast("已触发全局重排");
+  }, [bumpMapLayout, clearToast, showToast]);
+
   const handleDiscardSyncDraft = useCallback(async () => {
     clearToast();
     try {
@@ -243,7 +249,6 @@ export function DashboardPage() {
       setSelectedTechnologyId(null);
       setSelectedTechnology(emptyTechnologyState);
       setSelectedProject(emptyProjectState);
-      bumpMapLayout();
       showToast("已取消草稿同步");
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "取消草稿失败");
@@ -265,14 +270,13 @@ export function DashboardPage() {
       const graph = await roadmapApi.getDashboardGraph();
       setDashboard(graph);
       setSyncDraftChanges(null);
-      bumpMapLayout();
       showToast(`已提交：新增 ${result.added_ids.length}，更新 ${result.updated_ids.length}`);
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "提交草稿失败");
     } finally {
       setSyncCommitting(false);
     }
-  }, [bumpMapLayout, clearToast, dashboard, showToast, syncCommitting, syncDraftChanges]);
+  }, [clearToast, dashboard, showToast, syncCommitting, syncDraftChanges]);
 
   useEffect(() => {
     roadmapApi
@@ -355,7 +359,6 @@ export function DashboardPage() {
       setDashboard(graph);
       setSelectedTechnologyId(profile.technology.id);
       setEnterEditForTechnologyId(profile.technology.id);
-      bumpMapLayout();
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "创建节点失败");
     } finally {
@@ -446,7 +449,6 @@ export function DashboardPage() {
       setSelectedTechnology(emptyTechnologyState);
       setSelectedProject(emptyProjectState);
       setDashboard(await roadmapApi.getDashboardGraph());
-      bumpMapLayout();
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "删除失败");
       throw requestError;
@@ -566,7 +568,6 @@ export function DashboardPage() {
       if (preview.addedIds[0] || preview.updatedIds[0]) {
         setSelectedTechnologyId(preview.addedIds[0] ?? preview.updatedIds[0]);
       }
-      bumpMapLayout();
       showToast(`草稿已生成：新增 ${preview.addedIds.length}，更新 ${preview.updatedIds.length}。请确认后提交`);
       setIsSyncDialogOpen(false);
       setSyncJsonText("");
@@ -637,6 +638,15 @@ export function DashboardPage() {
                 onClick={handleDownloadNodeJson}
               >
                 {exporting ? <LoadingOutlined spin /> : <DownloadOutlined />}
+              </button>
+              <button
+                type="button"
+                className="graph-action-btn graph-action-btn--icon"
+                title="全局重排节点布局"
+                aria-label="全局重排节点布局"
+                onClick={handleRelayout}
+              >
+                <ReloadOutlined />
               </button>
             </div>
             <TopologyMap
