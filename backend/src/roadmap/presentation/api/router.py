@@ -8,6 +8,7 @@ from roadmap.presentation.api.schemas import (
     HealthResponse,
     ProjectCreateRequest,
     ProjectProfileResponse,
+    ProjectUpdateRequest,
     RelationCreateRequest,
     TechnologyExportResponse,
     TechnologyLayoutBatchRequest,
@@ -112,6 +113,17 @@ def create_router(service: RoadmapQueryService) -> APIRouter:
     @router.post("/projects", response_model=ProjectProfileResponse)
     def create_project(body: ProjectCreateRequest) -> ProjectProfileResponse:
         return ProjectProfileResponse.model_validate(service.create_project(body.technology_ids))
+
+    @router.patch("/projects/{project_id}", response_model=ProjectProfileResponse)
+    def update_project(project_id: str, body: ProjectUpdateRequest) -> ProjectProfileResponse:
+        return ProjectProfileResponse.model_validate(
+            service.update_project(
+                project_id,
+                name=body.name,
+                summary=body.summary,
+                technology_ids=body.technology_ids,
+            )
+        )
 
     @router.delete(
         "/projects/{project_id}",

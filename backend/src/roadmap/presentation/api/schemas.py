@@ -113,6 +113,12 @@ class ProjectCreateRequest(BaseModel):
     technology_ids: List[str]
 
 
+class ProjectUpdateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    summary: str = ""
+    technology_ids: List[str]
+
+
 class HealthResponse(BaseModel):
     status: str
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CopyOutlined, DeleteOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
@@ -333,6 +333,10 @@ export function DashboardPage() {
   const [selectedDeckTechnologyIds, setSelectedDeckTechnologyIds] = useState<string[]>([]);
   const [creatingDeck, setCreatingDeck] = useState(false);
   const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
+  const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
+  const [editingDeckName, setEditingDeckName] = useState("");
+  const [editingDeckSummary, setEditingDeckSummary] = useState("");
+  const [updatingDeck, setUpdatingDeck] = useState(false);
   const deckListRef = useRef<HTMLDivElement | null>(null);
   const deckItemRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const isSyncDrafting = syncDraftChanges !== null;
@@ -571,6 +575,7 @@ export function DashboardPage() {
     () => filteredDeckCards.filter((deckCard) => !deckCard.isAllDeck),
     [filteredDeckCards]
   );
+  const isEditingDeck = editingDeckId !== null;
 
   useEffect(() => {
     if (isCreatingDeck || selectedDeckId === ALL_DECK_ID) {
@@ -908,6 +913,31 @@ export function DashboardPage() {
     setIsCreatingDeck(true);
   };
 
+  const handleStartDeckEdit = (deckCard: DeckViewCard) => {
+    if (deckCard.isAllDeck || isCreatingDeck || updatingDeck || creatingDeck) {
+      return;
+    }
+    clearToast();
+    setSelectedTechnologyId(null);
+    setSelectedTechnology(emptyTechnologyState);
+    setEditingDeckId(deckCard.deckId);
+    setEditingDeckName(deckCard.name);
+    setEditingDeckSummary(deckCard.summary);
+    setSelectedDeckTechnologyIds(deckCard.technologies.map((technology) => technology.id));
+    setDeckSearchKeyword("");
+  };
+
+  const handleCancelDeckEdit = () => {
+    if (!isEditingDeck) {
+      return;
+    }
+    setEditingDeckId(null);
+    setEditingDeckName("");
+    setEditingDeckSummary("");
+    setSelectedDeckTechnologyIds([]);
+    setDeckSearchKeyword("");
+  };
+
   const handleToggleDeckTechnology = (technologyId: string) => {
     setSelectedDeckTechnologyIds((prev) =>
       prev.includes(technologyId) ? prev.filter((id) => id !== technologyId) : [...prev, technologyId]
@@ -943,6 +973,45 @@ export function DashboardPage() {
       showToast(requestError instanceof Error ? requestError.message : "创建牌组失败");
     } finally {
       setCreatingDeck(false);
+    }
+  };
+
+  const handleConfirmUpdateDeck = async () => {
+    if (!dashboard || !editingDeckId || updatingDeck) {
+      return;
+    }
+    clearToast();
+    const name = editingDeckName.trim();
+    if (!name) {
+      showToast("请先填写牌组名称");
+      return;
+    }
+    const summary = editingDeckSummary.trim();
+    const technologyIds = selectedDeckTechnologyIds;
+    if (technologyIds.length === 0) {
+      showToast("请至少选择一个标签后再保存");
+      return;
+    }
+    setUpdatingDeck(true);
+    try {
+      const profile = await roadmapApi.updateProject(editingDeckId, {
+        name,
+        summary,
+        technology_ids: technologyIds
+      });
+      const graph = await roadmapApi.getDashboardGraph();
+      setDashboard(graph);
+      setSelectedDeckId(editingDeckId);
+      setEditingDeckId(null);
+      setEditingDeckName("");
+      setEditingDeckSummary("");
+      setSelectedDeckTechnologyIds([]);
+      setDeckSearchKeyword("");
+      showToast(`已更新 ${profile.project.name}`);
+    } catch (requestError) {
+      showToast(requestError instanceof Error ? requestError.message : "更新牌组失败");
+    } finally {
+      setUpdatingDeck(false);
     }
   };
 
@@ -1175,41 +1244,90 @@ export function DashboardPage() {
                 type="search"
                 value={deckSearchKeyword}
                 onChange={(event) => setDeckSearchKeyword(event.target.value)}
-                placeholder={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
-                aria-label={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
+                placeholder={isCreatingDeck || isEditingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
+                aria-label={isCreatingDeck || isEditingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
               />
               <div className="deck-sidebar__actions">
-                <button
-                  type="button"
-                  className={`deck-sidebar__action ${isCreatingDeck ? "deck-sidebar__action--confirm" : ""}`}
-                  disabled={creatingDeck}
-                  onClick={() => {
-                    if (isCreatingDeck) {
-                      void handleConfirmCreateDeck();
-                      return;
-                    }
-                    handleToggleDeckCreateMode();
-                  }}
-                >
-                  {isCreatingDeck ? (creatingDeck ? "确认中..." : "确认") : "增加牌组"}
-                </button>
                 {isCreatingDeck ? (
+                  <>
+                    <button
+                      type="button"
+                      className="deck-sidebar__action deck-sidebar__action--confirm"
+                      disabled={creatingDeck}
+                      onClick={() => void handleConfirmCreateDeck()}
+                    >
+                      {creatingDeck ? "确认中..." : "确认"}
+                    </button>
+                    <button
+                      type="button"
+                      className="deck-sidebar__action deck-sidebar__action--cancel"
+                      disabled={creatingDeck}
+                      onClick={handleToggleDeckCreateMode}
+                      aria-label="取消创建牌组"
+                      title="取消创建牌组"
+                    >
+                      取消
+                    </button>
+                  </>
+                ) : isEditingDeck ? (
+                  <>
+                    <button
+                      type="button"
+                      className="deck-sidebar__action deck-sidebar__action--confirm"
+                      disabled={updatingDeck}
+                      onClick={() => void handleConfirmUpdateDeck()}
+                    >
+                      {updatingDeck ? "保存中..." : "保存"}
+                    </button>
+                    <button
+                      type="button"
+                      className="deck-sidebar__action deck-sidebar__action--cancel"
+                      disabled={updatingDeck}
+                      onClick={handleCancelDeckEdit}
+                      aria-label="取消编辑牌组"
+                      title="取消编辑牌组"
+                    >
+                      取消
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    className="deck-sidebar__action deck-sidebar__action--cancel"
-                    disabled={creatingDeck}
+                    className="deck-sidebar__action"
+                    disabled={creatingDeck || updatingDeck}
                     onClick={handleToggleDeckCreateMode}
-                    aria-label="取消创建牌组"
-                    title="取消创建牌组"
                   >
-                    取消
+                    增加牌组
                   </button>
-                ) : null}
+                )}
               </div>
             </div>
 
             <div className="deck-sidebar__list" aria-label="牌组列表">
-              {isCreatingDeck ? (
+              {isEditingDeck ? (
+                <div className="deck-sidebar__edit-name">
+                  <label htmlFor="deck-edit-name">牌组名称</label>
+                  <input
+                    id="deck-edit-name"
+                    type="text"
+                    value={editingDeckName}
+                    onChange={(event) => setEditingDeckName(event.target.value)}
+                    placeholder="请输入牌组名称"
+                    maxLength={64}
+                  />
+                  <label htmlFor="deck-edit-summary">牌组说明</label>
+                  <textarea
+                    id="deck-edit-summary"
+                    value={editingDeckSummary}
+                    onChange={(event) => setEditingDeckSummary(event.target.value)}
+                    placeholder="请输入牌组说明"
+                    maxLength={300}
+                    rows={3}
+                  />
+                  <p>已选标签 {selectedDeckTechnologyIds.length} 个</p>
+                </div>
+              ) : null}
+              {isCreatingDeck || isEditingDeck ? (
                 filteredNodePickerCards.length > 0 ? (
                   filteredNodePickerCards.map(({ technology, projectCount }) => (
                     <label
@@ -1272,42 +1390,57 @@ export function DashboardPage() {
                   ) : null}
 
                   <div ref={deckListRef} className="deck-sidebar__scroll">
-                    {scrollableDeckCards.map(({ deckId, name, summary, technologies, totalHours, rarityProduct }) => (
-                      <div key={deckId} className="deck-card-wrap">
+                    {scrollableDeckCards.map((deckCard) => (
+                      <div key={deckCard.deckId} className="deck-card-wrap">
                         <button
                           type="button"
                           ref={(element) => {
-                            deckItemRefs.current.set(deckId, element);
+                            deckItemRefs.current.set(deckCard.deckId, element);
                           }}
-                          className={`deck-card ${selectedDeckId === deckId ? "deck-card--active" : ""}`}
-                          onClick={() => handleSelectDeckProject(deckId)}
+                          className={`deck-card ${selectedDeckId === deckCard.deckId ? "deck-card--active" : ""}`}
+                          onClick={() => handleSelectDeckProject(deckCard.deckId)}
                         >
                           <div className="deck-card__meta">
-                            <span>时间 {formatHours(totalHours)}</span>
-                            <span>稀有度 {formatPercent(rarityProduct)}</span>
+                            <span>时间 {formatHours(deckCard.totalHours)}</span>
+                            <span>稀有度 {formatPercent(deckCard.rarityProduct)}</span>
                             <span>达成 1人</span>
                           </div>
                           <div className="deck-card__title-row">
-                            <strong>{name}</strong>
-                            <span>{technologies.length} 张卡牌</span>
+                            <strong>{deckCard.name}</strong>
+                            <span>{deckCard.technologies.length} 张卡牌</span>
                           </div>
                           <div className="deck-card__body">
-                            <p>{summary}</p>
+                            <p>{deckCard.summary}</p>
                           </div>
                         </button>
-                        <button
-                          type="button"
-                          className="deck-card__delete"
-                          disabled={Boolean(deletingDeckId)}
-                          aria-label={`删除牌组 ${name}`}
-                          title="删除牌组（保留卡牌）"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDeleteDeck(deckId);
-                          }}
-                        >
-                          <DeleteOutlined />
-                        </button>
+                        <div className="deck-card__tools">
+                          <button
+                            type="button"
+                            className="deck-card__tool deck-card__tool--edit"
+                            disabled={Boolean(deletingDeckId) || updatingDeck || isCreatingDeck || isEditingDeck}
+                            aria-label={`编辑牌组 ${deckCard.name}`}
+                            title="编辑牌组"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleStartDeckEdit(deckCard);
+                            }}
+                          >
+                            <EditOutlined />
+                          </button>
+                          <button
+                            type="button"
+                            className="deck-card__tool deck-card__tool--delete"
+                            disabled={Boolean(deletingDeckId) || updatingDeck || isCreatingDeck || isEditingDeck}
+                            aria-label={`删除牌组 ${deckCard.name}`}
+                            title="删除牌组（保留卡牌）"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteDeck(deckCard.deckId);
+                            }}
+                          >
+                            <DeleteOutlined />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

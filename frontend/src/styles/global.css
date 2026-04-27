@@ -546,6 +546,52 @@ a {
   gap: 12px;
 }
 
+.deck-sidebar__edit-name {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 45, 35, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.deck-sidebar__edit-name label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.deck-sidebar__edit-name input {
+  width: 100%;
+  border: 1px solid rgba(31, 45, 35, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  outline: none;
+}
+
+.deck-sidebar__edit-name textarea {
+  width: 100%;
+  border: 1px solid rgba(31, 45, 35, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+}
+
+.deck-sidebar__edit-name p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .deck-sidebar__scroll {
   min-height: 0;
   overflow: auto;
@@ -658,34 +704,46 @@ a {
   text-align: right;
 }
 
-.deck-card__delete {
+.deck-card__tools {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(31, 45, 35, 0.14);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: rgba(155, 61, 19, 0.92);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
+  display: flex;
+  gap: 8px;
   opacity: 0;
   transform: translateY(-2px);
   pointer-events: none;
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
-.deck-card-wrap:hover .deck-card__delete,
-.deck-card-wrap:focus-within .deck-card__delete {
+.deck-card__tool {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(31, 45, 35, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.deck-card__tool--edit {
+  color: rgba(62, 84, 74, 0.95);
+}
+
+.deck-card__tool--delete {
+  color: rgba(155, 61, 19, 0.92);
+}
+
+.deck-card-wrap:hover .deck-card__tools,
+.deck-card-wrap:focus-within .deck-card__tools {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
 }
 
-.deck-card__delete:disabled {
-  opacity: 0.65;
+.deck-card__tool:disabled {
+  opacity: 0.6;
   cursor: wait;
 }
 

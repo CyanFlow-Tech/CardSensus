@@ -106,6 +106,44 @@ class JsonRoadmapRepository(RoadmapRepository):
         data["projects"] = filtered
         self._write_data(data)
 
+    def update_project(self, project_id: str, *, name: str, summary: str, technology_ids: Iterable[str]) -> ProjectNode:
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        projects = data.get("projects", [])
+        project_row = next((project for project in projects if str(project.get("id", "")).strip() == project_id), None)
+        if project_row is None:
+            msg = f"project not found: {project_id}"
+            raise ValueError(msg)
+        normalized_name = str(name).strip()
+        if not normalized_name:
+            msg = "project name is required"
+            raise ValueError(msg)
+        normalized_summary = str(summary).strip()
+
+        technologies = data.get("technologies", [])
+        tech_ids = {str(item.get("id", "")).strip() for item in technologies}
+        normalized_ids = []
+        seen_ids: set[str] = set()
+        for technology_id in technology_ids:
+            value = str(technology_id).strip()
+            if not value or value in seen_ids:
+                continue
+            if value not in tech_ids:
+                msg = f"technology not found: {value}"
+                raise ValueError(msg)
+            seen_ids.add(value)
+            normalized_ids.append(value)
+        if not normalized_ids:
+            msg = "at least one technology is required"
+            raise ValueError(msg)
+
+        project_row["name"] = normalized_name
+        project_row["summary"] = normalized_summary
+        project_row["associated_tech"] = normalized_ids
+        self._write_data(data)
+        parsed = self.get_project(project_id)
+        assert parsed is not None
+        return parsed
+
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
         if not any(t["id"] == parent_id for t in data["technologies"]):

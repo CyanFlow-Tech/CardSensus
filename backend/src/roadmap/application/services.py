@@ -66,6 +66,16 @@ class RoadmapQueryService:
         except ValueError as err:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
 
+    def update_project(self, project_id: str, *, name: str, summary: str, technology_ids: List[str]) -> ProjectProfileDTO:
+        try:
+            self._repository.update_project(project_id, name=name, summary=summary, technology_ids=technology_ids)
+        except ValueError as err:
+            detail = str(err)
+            if detail.startswith("project not found") or detail.startswith("technology not found"):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from err
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from err
+        return self.get_project_profile(project_id)
+
     def update_technology_layouts(self, layouts: Dict[str, tuple[float, float]]) -> None:
         try:
             self._repository.update_technology_layouts(layouts)

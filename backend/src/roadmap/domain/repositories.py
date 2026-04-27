@@ -38,6 +38,11 @@ class RoadmapRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def update_project(self, project_id: str, *, name: str, summary: str, technology_ids: Iterable[str]) -> ProjectNode:
+        """更新牌组名称、说明与关联技术节点。"""
+        raise NotImplementedError
+
+    @abstractmethod
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         """在依赖关系上位于 parent 的上一层新建节点：parent ->(dependency)-> new。"""
         raise NotImplementedError

@@ -26,6 +26,12 @@ export interface ProjectCreatePayload {
   technology_ids: string[];
 }
 
+export interface ProjectUpdatePayload {
+  name: string;
+  summary: string;
+  technology_ids: string[];
+}
+
 export interface TechnologyUpdatePayload {
   name?: string;
   summary?: string;
@@ -100,6 +106,11 @@ export const roadmapApi = {
     httpDelete(`/technologies/${encodeURIComponent(technologyId)}`),
   createProject: (payload: ProjectCreatePayload) =>
     httpPost<{ project: Project; related_technologies: Technology[] }>("/projects", payload),
+  updateProject: (projectId: string, payload: ProjectUpdatePayload) =>
+    httpPatch<{ project: Project; related_technologies: Technology[] }>(
+      `/projects/${encodeURIComponent(projectId)}`,
+      payload
+    ),
   deleteProject: (projectId: string) =>
     httpDelete(`/projects/${encodeURIComponent(projectId)}`)
 };
