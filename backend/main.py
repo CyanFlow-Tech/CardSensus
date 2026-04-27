@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from importlib import import_module
+from pathlib import Path
 
 _pkg = "".join(["road", "map"])
 CardSensusQueryService = import_module(f"{_pkg}.application.services").CardSensusQueryService
@@ -25,6 +27,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    files_dir = Path(__file__).resolve().parent / "data" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/files", StaticFiles(directory=str(files_dir)), name="files")
 
     app.include_router(create_router(service))
     return app

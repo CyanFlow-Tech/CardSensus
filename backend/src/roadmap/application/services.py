@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
+import json
+from pathlib import Path
+import re
+import shutil
+import urllib.parse
+import urllib.request
 from typing import Dict, List
 
 from fastapi import HTTPException, status
@@ -20,6 +27,64 @@ from .dto import (
 from ..domain.models import ProjectNode, RelationEdge, RelationType, TechnologyNode
 from ..domain.repositories import CardSensusRepository
 from ..domain.services import TechnologyStatusPolicy
+
+IMAGE_REGEN_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="card-image-regen")
+DEFAULT_IMAGE_SERVICE_URL = "http://127.0.0.1:9001/generate"
+DEFAULT_LLM_URL = "http://192.168.1.172:11434/v1"
+DEFAULT_LLM_MODEL = "gemma4:31b"
+DEFAULT_TIMEOUT_S = 120.0
+
+
+def _fetch_json(url: str, payload: dict, timeout_s: float) -> dict:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        body = resp.read().decode("utf-8")
+    data = json.loads(body)
+    if not isinstance(data, dict):
+        raise ValueError("image service response is not a JSON object")
+    return data
+
+
+def _sanitize_visual_prompt(text: str) -> str:
+    lines: List[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^[\-\*\d\.\)\s]+", "", line).strip()
+        if line:
+            lines.append(line)
+    return " ".join(lines).strip()
+
+
+def _clamp_to_max_sentences(text: str, max_sentences: int = 4) -> str:
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    kept = [item.strip() for item in sentences if item.strip()][:max_sentences]
+    return " ".join(kept).strip()
+
+
+def _extract_message_text(message: dict) -> str:
+    content = message.get("content", "")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        chunks: List[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    chunks.append(text.strip())
+        if chunks:
+            return "\n".join(chunks).strip()
+    return ""
 
 
 class CardSensusQueryService:
@@ -152,6 +217,104 @@ class CardSensusQueryService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
         return self.get_technology_profile(technology_id)
 
+    def queue_regenerate_technology_image(self, technology_id: str) -> dict:
+        technology = self._repository.get_technology(technology_id)
+        if technology is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Technology not found")
+        IMAGE_REGEN_EXECUTOR.submit(self._regenerate_technology_image_job, technology_id)
+        return {"status": "queued", "detail": "image regeneration started in background"}
+
+    def _regenerate_technology_image_job(self, technology_id: str) -> None:
+        technology = self._repository.get_technology(technology_id)
+        if technology is None:
+            return
+
+        repo_root = Path(__file__).resolve().parents[4]
+        files_dir = repo_root / "data" / "files" / "cards"
+        files_dir.mkdir(parents=True, exist_ok=True)
+        target = files_dir / f"{technology_id}.png"
+        image_url = f"/files/cards/{target.name}"
+        title = technology.name.strip()
+
+        file_url = ""
+        file_path = ""
+        visual_prompt = ""
+
+        if title.startswith("新卡牌"):
+            file_path = str((files_dir / "new_card.png").resolve())
+        else:
+            llm_payload = {
+                "model": DEFAULT_LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": "You are a visual prompt writer for card art generation. Always reply in English only."},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Write a short visual prompt for image generation around this card title: "
+                            f"{title!r}. Do not repeat the title in the prompt. Description Only."
+                            "Requirements: max 4 sentences; describe visible objects/composition and style; "
+                            "no markdown; no bullet points; no quotation marks."
+                        ),
+                    },
+                ],
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "stream": False,
+            }
+            try:
+                llm_data = _fetch_json(
+                    DEFAULT_LLM_URL.rstrip("/") + "/chat/completions",
+                    llm_payload,
+                    timeout_s=DEFAULT_TIMEOUT_S,
+                )
+                choices = llm_data.get("choices")
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                    message = choices[0].get("message")
+                    if isinstance(message, dict):
+                        visual_prompt = _clamp_to_max_sentences(
+                            _sanitize_visual_prompt(_extract_message_text(message)),
+                            max_sentences=4,
+                        )
+            except Exception:
+                visual_prompt = ""
+
+            if not visual_prompt:
+                visual_prompt = (
+                    f"A bold flat vector scene centered on {title}, with iconic objects and dynamic composition. "
+                    "Use clean thick outlines and exaggerated perspective to create strong visual tension. "
+                    "Keep a minimal all-over graphic style with only 3-4 colors and no gradients. "
+                    "Fill the full frame with clear shapes and no text."
+                )
+
+            image_data = _fetch_json(
+                DEFAULT_IMAGE_SERVICE_URL,
+                {
+                    "title": visual_prompt,
+                    "theme_colors": ["cyan", "dark gray", "gold"],
+                    "extra_prompt": "no text",
+                },
+                timeout_s=DEFAULT_TIMEOUT_S,
+            )
+            file_url = str(image_data.get("file_url", "")).strip()
+            file_path = str(image_data.get("file_path", "")).strip()
+
+        if file_url:
+            if file_url.startswith("/"):
+                parsed = urllib.parse.urlparse(DEFAULT_IMAGE_SERVICE_URL)
+                file_url = f"{parsed.scheme}://{parsed.netloc}{file_url}"
+            req = urllib.request.Request(file_url, method="GET")
+            with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT_S) as resp:
+                target.write_bytes(resp.read())
+        elif file_path:
+            source = Path(file_path)
+            if not source.exists():
+                return
+            shutil.copyfile(source, target)
+        else:
+            return
+
+        self._repository.update_technology(technology_id, {"image_url": image_url})
+
     def get_technology_profile(self, technology_id: str) -> TechnologyProfileDTO:
         technology = self._repository.get_technology(technology_id)
         if technology is None:
@@ -214,6 +377,7 @@ class CardSensusQueryService:
             status=status_value,
             rarity_index=technology.rarity_index,
             active_user_count=technology.active_user_count,
+            image_url=technology.image_url,
             layout=LayoutDTO(x=technology.layout.x, y=technology.layout.y),
             resource_count=len(project_ids) + len(technology.resources),
         )

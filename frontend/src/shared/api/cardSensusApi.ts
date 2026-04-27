@@ -47,6 +47,7 @@ export interface TechnologySyncItemPayload {
   time_spent_hours?: number;
   rarity_index?: number;
   active_user_count?: number;
+  dependency_ids?: string[];
 }
 
 export interface TechnologySyncResponse {
@@ -62,6 +63,7 @@ export interface TechnologyExportItem {
   time_spent_hours: number;
   rarity_index: number;
   active_user_count: number;
+  dependency_ids: string[];
 }
 
 export interface TechnologyExportResponse {
@@ -72,6 +74,11 @@ export interface TechnologyLayoutItemPayload {
   id: string;
   x: number;
   y: number;
+}
+
+export interface AsyncActionResponse {
+  status: string;
+  detail: string;
 }
 
 export const cardSensusApi = {
@@ -90,6 +97,8 @@ export const cardSensusApi = {
     httpPatchNoContent("/technologies/layout", { items }),
   getTechnologyProfile: (technologyId: string) =>
     httpGet<TechnologyProfileResponse>(`/technologies/${technologyId}`),
+  regenerateTechnologyImage: (technologyId: string) =>
+    httpPost<AsyncActionResponse>(`/technologies/${encodeURIComponent(technologyId)}/regenerate-image`),
   createDerivedTechnology: (parentId: string) =>
     httpPost<TechnologyProfileResponse>(`/technologies/${encodeURIComponent(parentId)}/derived`),
   syncTechnologies: (items: TechnologySyncItemPayload[]) =>

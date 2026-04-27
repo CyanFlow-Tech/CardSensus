@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
@@ -35,7 +34,6 @@ class JsonCardSensusRepository(CardSensusRepository):
                     if isinstance(resource, dict):
                         resource.pop("title", None)
         self._data_file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._payload.cache_clear()
 
     def list_technologies(self) -> Iterable[TechnologyNode]:
         return self._payload()["technologies"]
@@ -155,7 +153,7 @@ class JsonCardSensusRepository(CardSensusRepository):
                 break
         else:  # pragma: no cover
             new_id = f"tech-{uuid.uuid4().hex}"
-        new_row = self._build_default_technology_row(new_id, name="新卡牌")
+        new_row = self._build_default_technology_row(new_id, name=self._next_new_card_name(data))
         data["technologies"].append(new_row)
         data["relations"].append(
             {"source_id": parent_id, "target_id": new_id, "relation_type": "dependency"}
@@ -211,12 +209,21 @@ class JsonCardSensusRepository(CardSensusRepository):
             return
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
         by_id = {str(t["id"]): t for t in data["technologies"]}
+        unknown_ids: List[str] = []
         for tech_id, (x, y) in layouts.items():
             row = by_id.get(str(tech_id))
             if row is None:
-                msg = f"technology not found: {tech_id}"
-                raise ValueError(msg)
+                unknown_ids.append(str(tech_id))
+                continue
             row["layout"] = {"x": float(x), "y": float(y)}
+        if unknown_ids:
+            # Ignore stale client ids to keep relayout robust; valid nodes are still persisted.
+            data["relations"] = [
+                relation
+                for relation in data.get("relations", [])
+                if str(relation.get("source_id", "")) not in unknown_ids
+                and str(relation.get("target_id", "")) not in unknown_ids
+            ]
         self._write_data(data)
 
     def update_technology(self, technology_id: str, updates: Mapping[str, Any]) -> TechnologyNode:
@@ -234,6 +241,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             "time_spent_hours",
             "rarity_index",
             "active_user_count",
+            "image_url",
         }
         for key, value in updates.items():
             if key in allowed and value is not None:
@@ -323,6 +331,7 @@ class JsonCardSensusRepository(CardSensusRepository):
     def sync_technologies(self, items: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
         technologies = data.get("technologies", [])
+        relations = data.get("relations", [])
         existing_ids = {str(node.get("id", "")).strip() for node in technologies}
         existing_by_id = {
             str(node.get("id", "")).strip(): node
@@ -338,6 +347,7 @@ class JsonCardSensusRepository(CardSensusRepository):
         added_ids: List[str] = []
         updated_ids: List[str] = []
         skipped_names: List[str] = []
+        dependency_updates: Dict[str, List[str]] = {}
 
         for item in items:
             name = str(item.get("name", "")).strip()
@@ -365,9 +375,20 @@ class JsonCardSensusRepository(CardSensusRepository):
                     0,
                     int(item.get("active_user_count", existing_row.get("active_user_count", 0))),
                 )
+                if "image_url" in item:
+                    existing_row["image_url"] = str(item.get("image_url", existing_row.get("image_url", "")))
                 node_id = str(existing_row.get("id", "")).strip()
                 if node_id and node_id not in updated_ids:
                     updated_ids.append(node_id)
+                if "dependency_ids" in item and node_id:
+                    raw_dependency_ids = item.get("dependency_ids", [])
+                    if isinstance(raw_dependency_ids, list):
+                        normalized_dependency_ids = [
+                            str(value).strip()
+                            for value in raw_dependency_ids
+                            if str(value).strip()
+                        ]
+                        dependency_updates[node_id] = normalized_dependency_ids
                 if old_name and old_name != name:
                     existing_by_name.pop(old_name, None)
                 existing_by_name[name] = existing_row
@@ -382,17 +403,76 @@ class JsonCardSensusRepository(CardSensusRepository):
             row["time_spent_hours"] = float(item.get("time_spent_hours", row["time_spent_hours"]))
             row["rarity_index"] = min(1.0, max(0.0, float(item.get("rarity_index", row["rarity_index"]))))
             row["active_user_count"] = max(0, int(item.get("active_user_count", row["active_user_count"])))
+            row["image_url"] = str(item.get("image_url", row.get("image_url", "")))
 
             technologies.append(row)
             existing_ids.add(node_id)
             existing_by_id[node_id] = row
             existing_by_name[name] = row
             added_ids.append(node_id)
+            if "dependency_ids" in item:
+                raw_dependency_ids = item.get("dependency_ids", [])
+                if isinstance(raw_dependency_ids, list):
+                    normalized_dependency_ids = [
+                        str(value).strip()
+                        for value in raw_dependency_ids
+                        if str(value).strip()
+                    ]
+                    dependency_updates[node_id] = normalized_dependency_ids
+
+        if dependency_updates:
+            dependency_edge_set = {
+                (str(relation.get("source_id", "")).strip(), str(relation.get("target_id", "")).strip())
+                for relation in relations
+                if relation.get("relation_type") == "dependency"
+            }
+            target_ids = set(dependency_updates.keys())
+            relations = [
+                relation
+                for relation in relations
+                if not (
+                    relation.get("relation_type") == "dependency"
+                    and str(relation.get("target_id", "")).strip() in target_ids
+                )
+            ]
+            dependency_edge_set = {
+                (str(relation.get("source_id", "")).strip(), str(relation.get("target_id", "")).strip())
+                for relation in relations
+                if relation.get("relation_type") == "dependency"
+            }
+            for target_id, dependency_ids in dependency_updates.items():
+                deduped_dependencies: set[str] = set()
+                for dependency_id in dependency_ids:
+                    if (
+                        not dependency_id
+                        or dependency_id == target_id
+                        or dependency_id in deduped_dependencies
+                        or dependency_id not in existing_ids
+                    ):
+                        continue
+                    edge_key = (dependency_id, target_id)
+                    if edge_key in dependency_edge_set:
+                        continue
+                    deduped_dependencies.add(dependency_id)
+                    dependency_edge_set.add(edge_key)
+                    relations.append(
+                        {
+                            "source_id": dependency_id,
+                            "target_id": target_id,
+                            "relation_type": "dependency",
+                        }
+                    )
+            data["relations"] = relations
 
         self._write_data(data)
         return {"added_ids": added_ids, "updated_ids": updated_ids, "skipped_names": skipped_names}
 
     def export_technologies(self) -> List[Dict[str, Any]]:
+        dependency_by_target: Dict[str, List[str]] = {}
+        for relation in self.list_relations():
+            if relation.relation_type != RelationType.DEPENDENCY:
+                continue
+            dependency_by_target.setdefault(relation.target_id, []).append(relation.source_id)
         return [
             {
                 "id": tech.id,
@@ -401,6 +481,8 @@ class JsonCardSensusRepository(CardSensusRepository):
                 "time_spent_hours": tech.time_spent_hours,
                 "rarity_index": tech.rarity_index,
                 "active_user_count": tech.active_user_count,
+                "image_url": tech.image_url,
+                "dependency_ids": dependency_by_target.get(tech.id, []),
             }
             for tech in self.list_technologies()
         ]
@@ -413,6 +495,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             "time_spent_hours": 0.0,
             "rarity_index": 0.5,
             "active_user_count": 0,
+            "image_url": "",
             "activity": {
                 "reading_hours": 0.0,
                 "coding_hours": 0.0,
@@ -430,7 +513,21 @@ class JsonCardSensusRepository(CardSensusRepository):
             "layout": {"x": 0.0, "y": 0.0},
         }
 
-    @lru_cache(maxsize=1)
+    def _next_new_card_name(self, data: Dict[str, Any]) -> str:
+        used_numbers: set[int] = set()
+        for row in data.get("technologies", []):
+            value = str(row.get("name", "")).strip()
+            match = re.fullmatch(r"新卡牌(\d+)", value)
+            if not match:
+                continue
+            index = int(match.group(1))
+            if index > 0:
+                used_numbers.add(index)
+        next_number = 1
+        while next_number in used_numbers:
+            next_number += 1
+        return f"新卡牌{next_number}"
+
     def _payload(self) -> Dict[str, List[Any]]:
         raw = json.loads(self._data_file.read_text(encoding="utf-8"))
         return {
@@ -447,6 +544,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             time_spent_hours=payload["time_spent_hours"],
             rarity_index=payload["rarity_index"],
             active_user_count=payload["active_user_count"],
+            image_url=str(payload.get("image_url", "")),
             activity=ActivitySnapshot(
                 reading_hours=payload["activity"]["reading_hours"],
                 coding_hours=payload["activity"]["coding_hours"],

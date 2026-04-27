@@ -27,6 +27,7 @@ class TechnologyDTO:
     status: str
     rarity_index: float
     active_user_count: int
+    image_url: str
     layout: LayoutDTO
     resource_count: int
 

@@ -7,11 +7,12 @@ interface RarityMeta {
 }
 
 const rarityScale: Array<{ min: number; meta: RarityMeta }> = [
-  { min: 0.84, meta: { tier: "mythic", label: "神话", colorToken: "red" } },
-  { min: 0.68, meta: { tier: "legendary", label: "传说", colorToken: "orange" } },
+  // Higher rarity_index means more common; lower means rarer.
+  { min: 0.84, meta: { tier: "common", label: "普通", colorToken: "blue" } },
+  { min: 0.68, meta: { tier: "rare", label: "稀有", colorToken: "green" } },
   { min: 0.52, meta: { tier: "epic", label: "史诗", colorToken: "purple" } },
-  { min: 0.36, meta: { tier: "rare", label: "稀有", colorToken: "green" } },
-  { min: 0.2, meta: { tier: "common", label: "普通", colorToken: "blue" } },
+  { min: 0.36, meta: { tier: "legendary", label: "传说", colorToken: "orange" } },
+  { min: 0.2, meta: { tier: "mythic", label: "神话", colorToken: "red" } },
   { min: 0, meta: { tier: "basic", label: "基础", colorToken: "white" } }
 ];
 

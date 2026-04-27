@@ -21,6 +21,7 @@ export interface Technology {
   status: TechnologyStatus;
   rarity_index: number;
   active_user_count: number;
+  image_url: string;
   layout: LayoutPosition;
   resource_count: number;
 }

@@ -1,4 +1,12 @@
 # CardSensus
+<div align="left">
+<img src="https://img.shields.io/badge/React-gray?logo=react" alt="React">
+<img src="https://img.shields.io/badge/Typescript-gray?logo=typescript" alt="Typescript">
+<img src="https://img.shields.io/badge/Vite-gray?logo=vite" alt="Vite">
+<img src="https://img.shields.io/badge/FastAPI-gray?logo=fastapi" alt="FastAPI">
+<img src="https://img.shields.io/github/license/CyanFlow-Tech/Aura" alt="License">
+</div>
+
 
 CardSensus 是一个把“学习、实践、协作、成长”组织成统一科技树的项目。
 
@@ -116,115 +124,3 @@ npm run dev
 ```
 
 默认地址：`http://127.0.0.1:5173`
-
-## 我对当前仓库里“大块无用代码 / 无用内容”的分析
-
-这里我只列“整块组件、整份文件、整类目录”级别的问题，不列零碎的死代码。
-
-### 一、可以直接判定为未接入运行路径的前端组件
-
-这三份文件目前没有被任何运行入口引用，属于整块闲置代码：
-
-- [frontend/src/features/view-switcher/ViewSwitcher.tsx](/root/folkspace/CardSensus/frontend/src/features/view-switcher/ViewSwitcher.tsx:1)
-- [frontend/src/widgets/kanban-board/KanbanBoard.tsx](/root/folkspace/CardSensus/frontend/src/widgets/kanban-board/KanbanBoard.tsx:1)
-- [frontend/src/widgets/summary-panel/SummaryPanel.tsx](/root/folkspace/CardSensus/frontend/src/widgets/summary-panel/SummaryPanel.tsx:1)
-
-判断依据：
-
-- 前端入口 [frontend/src/main.tsx](/root/folkspace/CardSensus/frontend/src/main.tsx:1) 只渲染了 [frontend/src/app/App.tsx](/root/folkspace/CardSensus/frontend/src/app/App.tsx:1)
-- `App` 只挂载了 [frontend/src/pages/dashboard/DashboardPage.tsx](/root/folkspace/CardSensus/frontend/src/pages/dashboard/DashboardPage.tsx:1)
-- 在 `DashboardPage` 中，实际引用的页面级组件只有 `TopologyMap` 和 `InspectorPanel`
-- 全仓库搜索结果显示，`ViewSwitcher`、`KanbanBoard`、`SummaryPanel` 只有定义，没有被 import 使用
-
-这意味着它们大概率是早期方案残留：
-
-- `ViewSwitcher` 像是曾经计划用于“拓扑图 / 看板”切换
-- `KanbanBoard` 像是曾经的技术节点状态看板视图
-- `SummaryPanel` 像是曾经的概览统计面板
-
-如果你已经确认不再走这个界面方向，可以删除；如果后面还想恢复多视图，就应该把它们重新接入，而不是继续悬空。
-
-### 二、后端存在重复入口文件
-
-这两份文件内容实质上是重复的：
-
-- [backend/main.py](/root/folkspace/CardSensus/backend/main.py:1)
-- [backend/src/main.py](/root/folkspace/CardSensus/backend/src/main.py:1)
-
-它们都在创建同一个 FastAPI app，结构和逻辑基本一致。这类重复入口很容易带来两个问题：
-
-- 后续改配置时只改了一份，另一份忘记同步
-- 启动命令、部署方式、导入路径容易产生歧义
-
-如果没有明确的双入口需求，建议保留一个标准入口即可。
-
-### 三、明显不应提交到版本库的大块工程产物
-
-这些内容不一定叫“无用代码”，但作为仓库内容基本属于冗余物，建议从版本库清掉：
-
-- `frontend/node_modules/`
-- `frontend/dist/`
-- `backend/.venv/`
-- `backend/__pycache__/`
-- `backend/src/**/__pycache__/`
-- `node_modules/`
-- `*.tsbuildinfo`
-
-原因很直接：
-
-- 它们是依赖安装、构建或解释器缓存产物，不是项目源码
-- 会显著增大仓库体积
-- 会污染代码审阅
-- 容易制造“看起来文件很多，但真正源码不多”的错觉
-
-而且你自己的忽略规则已经说明这类内容本来就不该进仓库：
-
-- [frontend/.gitignore](/root/folkspace/CardSensus/frontend/.gitignore:1)
-- [backend/.gitignore](/root/folkspace/CardSensus/backend/.gitignore:1)
-
-其中还有一个值得注意的点：
-
-- `backend/.gitignore` 里把 `data/` 忽略掉了
-- 但仓库里当前又依赖 [backend/data/seed.json](/root/folkspace/CardSensus/backend/data/seed.json:1) 作为示例数据
-
-这会导致以后别人拉取仓库时，数据文件的跟踪策略不清晰。这里需要你决定：`data/` 到底是示例数据的一部分，还是纯本地开发数据目录。现在这个状态是矛盾的。
-
-### 四、根目录与子目录存在文档/配置层面的“骨架残留”
-
-- 根目录 [package.json](/root/folkspace/CardSensus/package.json:1) 几乎没有承担实际 monorepo 管理职责，只保留了一个 `@ant-design/icons` 依赖声明，当前价值很低
-- 旧版根目录 `README.md` 更像技术模板说明，不足以承载项目愿景和产品表达
-
-这类内容不一定要删，但如果长期保留“半骨架半成品”状态，会增加理解成本。
-
-## 未来值得继续做的方向
-
-如果沿着现在的思路继续推进，我认为这个项目最有潜力的不是“一个技术关系图页面”，而是下面这几层逐步叠加：
-
-### 1. 从个人图谱走向社区图谱
-
-- 允许多人提交节点定义、依赖关系、稀有度估计和学习建议
-- 对众包结果做聚合、评分、版本化和审核
-
-### 2. 从牌组收藏走向学习路线
-
-- 一套牌组不仅是技术集合，还可以表达推荐顺序、分支路线、难度梯度
-- 比如“后端工程师基础牌组”“爬虫进阶牌组”“AI 应用开发牌组”
-
-### 3. 从图谱管理走向成长系统
-
-- 记录个人解锁过哪些卡牌
-- 标记哪些只是了解，哪些已经实战，哪些可以带人
-- 用卡牌稀有度、完成度、组合深度来形成成就系统
-
-### 4. 从成长系统走向真正的卡牌玩法
-
-- 牌组之间可以有主题、协同、克制、流派
-- 一个人的技术能力不再只是简历文本，而是一套可视化、可组合、可分享的“能力牌组”
-
-## 总结
-
-CardSensus 现在最有价值的地方，不是它已经完成了多少功能，而是它已经找到了一个很强的表达方式：
-
-把知识图谱、技术成长、众包协作和游戏化卡牌系统放到同一个产品叙事里。
-
-这条路线是成立的，而且有想象空间。当前仓库里真正值得优先清理的，是那些已经脱离运行路径的整块组件、重复入口，以及不该提交的构建和环境产物。把这些整理干净之后，这个项目的产品方向和工程结构都会更清楚。

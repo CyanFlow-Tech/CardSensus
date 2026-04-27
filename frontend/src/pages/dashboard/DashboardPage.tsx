@@ -6,6 +6,7 @@ import {
   EditOutlined,
   FileTextOutlined,
   LoadingOutlined,
+  PlusOutlined,
   ReloadOutlined,
   VerticalAlignTopOutlined
 } from "@ant-design/icons";
@@ -67,24 +68,34 @@ function normalizeSyncItem(item: TechnologySyncItemPayload): TechnologySyncItemP
   if (!name) {
     return null;
   }
+  const dependencyIds = Array.isArray(item.dependency_ids)
+    ? [...new Set(item.dependency_ids.map((value) => String(value).trim()).filter(Boolean))]
+    : undefined;
   return {
     id: item.id?.trim() || undefined,
     name,
     summary: item.summary?.trim() || undefined,
     time_spent_hours: item.time_spent_hours,
     rarity_index: item.rarity_index,
-    active_user_count: item.active_user_count
+    active_user_count: item.active_user_count,
+    dependency_ids: dependencyIds
   };
 }
 
-function toSyncPayloadFromTechnology(technology: Technology): TechnologySyncItemPayload {
+function toSyncPayloadFromTechnology(
+  technology: Technology,
+  relations: DashboardGraphResponse["relations"]
+): TechnologySyncItemPayload {
   return {
     id: technology.id,
     name: technology.name,
     summary: technology.summary,
     time_spent_hours: technology.time_spent_hours,
     rarity_index: technology.rarity_index,
-    active_user_count: technology.active_user_count
+    active_user_count: technology.active_user_count,
+    dependency_ids: relations
+      .filter((relation) => relation.relation_type === "dependency" && relation.target_id === technology.id)
+      .map((relation) => relation.source_id)
   };
 }
 
@@ -133,6 +144,7 @@ function buildSyncPreview(
   };
   const addedIds: string[] = [];
   const updatedIds: string[] = [];
+  let draftRelations = baseGraph.relations.map((relation) => ({ ...relation }));
 
   items.forEach((item) => {
     const normalized = normalizeSyncItem(item);
@@ -163,6 +175,30 @@ function buildSyncPreview(
         byName.delete(oldName);
         byName.set(target.name.trim(), target);
       }
+      if (normalized.dependency_ids) {
+        draftRelations = draftRelations.filter(
+          (relation) => !(relation.relation_type === "dependency" && relation.target_id === target.id)
+        );
+        normalized.dependency_ids.forEach((dependencyId) => {
+          if (
+            dependencyId &&
+            dependencyId !== target.id &&
+            byId.has(dependencyId) &&
+            !draftRelations.some(
+              (relation) =>
+                relation.relation_type === "dependency" &&
+                relation.source_id === dependencyId &&
+                relation.target_id === target.id
+            )
+          ) {
+            draftRelations.push({
+              source_id: dependencyId,
+              target_id: target.id,
+              relation_type: "dependency"
+            });
+          }
+        });
+      }
       return;
     }
 
@@ -175,6 +211,7 @@ function buildSyncPreview(
       status: "exploring",
       rarity_index: Math.min(1, Math.max(0, normalized.rarity_index ?? 0.5)),
       active_user_count: Math.max(0, normalized.active_user_count ?? 0),
+      image_url: "",
       layout: { x: 0, y: 0 },
       resource_count: 0
     };
@@ -182,12 +219,34 @@ function buildSyncPreview(
     byId.set(nodeId, newTech);
     byName.set(newTech.name.trim(), newTech);
     addedIds.push(nodeId);
+    if (normalized.dependency_ids) {
+      normalized.dependency_ids.forEach((dependencyId) => {
+        if (
+          dependencyId &&
+          dependencyId !== nodeId &&
+          byId.has(dependencyId) &&
+          !draftRelations.some(
+            (relation) =>
+              relation.relation_type === "dependency" &&
+              relation.source_id === dependencyId &&
+              relation.target_id === nodeId
+          )
+        ) {
+          draftRelations.push({
+            source_id: dependencyId,
+            target_id: nodeId,
+            relation_type: "dependency"
+          });
+        }
+      });
+    }
   });
 
   return {
     graph: {
       ...baseGraph,
-      technologies
+      technologies,
+      relations: draftRelations
     },
     addedIds,
     updatedIds
@@ -312,6 +371,7 @@ export function DashboardPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [creatingFromId, setCreatingFromId] = useState<string | null>(null);
+  const [creatingStandaloneCard, setCreatingStandaloneCard] = useState(false);
   const [enterEditForTechnologyId, setEnterEditForTechnologyId] = useState<string | null>(null);
   const [mapLayoutKey, setMapLayoutKey] = useState(0);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
@@ -402,7 +462,7 @@ export function DashboardPage() {
       const changedIdSet = new Set([...syncDraftChanges.addedIds, ...syncDraftChanges.updatedIds]);
       const commitItems = dashboard.technologies
         .filter((technology) => changedIdSet.has(technology.id))
-        .map(toSyncPayloadFromTechnology);
+        .map((technology) => toSyncPayloadFromTechnology(technology, dashboard.relations));
       const result = await cardSensusApi.syncTechnologies(commitItems);
       const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
@@ -612,6 +672,59 @@ export function DashboardPage() {
       showToast(requestError instanceof Error ? requestError.message : "创建卡牌失败");
     } finally {
       setCreatingFromId(null);
+    }
+  };
+
+  const handleCreateStandaloneCard = async () => {
+    if (!dashboard || creatingStandaloneCard || creatingFromId) {
+      return;
+    }
+    if (isSyncDrafting) {
+      showToast("草稿同步中暂不支持新增卡牌，请先确认或取消草稿");
+      return;
+    }
+    clearToast();
+    setCreatingStandaloneCard(true);
+    const newId = `tech-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const usedNumbers = new Set(
+      (dashboard.technologies ?? [])
+        .map((technology) => {
+          const match = /^新卡牌(\d+)$/.exec(technology.name.trim());
+          return match ? Number(match[1]) : null;
+        })
+        .filter((value): value is number => value !== null && Number.isInteger(value) && value > 0)
+    );
+    let nextNumber = 1;
+    while (usedNumbers.has(nextNumber)) {
+      nextNumber += 1;
+    }
+    const newName = `新卡牌${nextNumber}`;
+    try {
+      const result = await cardSensusApi.syncTechnologies([
+        {
+          id: newId,
+          name: newName,
+          summary: "",
+          time_spent_hours: 0,
+          rarity_index: 0.5,
+          active_user_count: 0
+        }
+      ]);
+      const graph = await cardSensusApi.getDashboardGraph();
+      setDashboard(graph);
+      const createdId = result.added_ids[0] ?? result.updated_ids[0] ?? null;
+      if (!createdId) {
+        showToast("新增卡牌失败：未返回有效卡牌 id");
+        return;
+      }
+      setSelectedTechnologyId(createdId);
+      setEnterEditForTechnologyId(createdId);
+      const actionText = result.added_ids.length > 0 ? "新增" : "复用更新";
+      showToast(`已${actionText}卡牌并写入数据库`);
+    } catch (requestError) {
+      showToast(requestError instanceof Error ? requestError.message : "新增卡牌失败");
+    } finally {
+      setCreatingStandaloneCard(false);
     }
   };
 
@@ -871,6 +984,20 @@ export function DashboardPage() {
     [clearToast, isSyncDrafting, selectedTechnologyId, showToast]
   );
 
+  const handleRegenerateImage = useCallback(
+    async (technologyId: string) => {
+      clearToast();
+      try {
+        const result = await cardSensusApi.regenerateTechnologyImage(technologyId);
+        showToast(result.detail || "已开始后台生成插图");
+      } catch (requestError) {
+        showToast(requestError instanceof Error ? requestError.message : "重新生成插图失败");
+        throw requestError;
+      }
+    },
+    [clearToast, showToast]
+  );
+
   const handleSelectProject = (projectId: string) => {
     setSelectedDeckId(projectId);
   };
@@ -1049,11 +1176,13 @@ export function DashboardPage() {
 - time_spent_hours (评估我在上传文件中实现这个技术所花费的时间)
 - rarity_index (设为默认值1)
 - active_user_count (设为默认值1)
+- dependency_ids (可选，表示该卡牌的前置依赖卡牌 id 列表)
 
 要求：
 1) 优先复用当前卡牌池里语义最接近的卡牌（输出其 id 并可更新其他字段）。
 2) 若没有合适卡牌，则创建新卡牌（不提供 id 也可）。
-3) 仅输出 JSON 列表，不要输出 Markdown、解释、代码块围栏。
+3) dependency_ids 仅填写当前卡牌池中已存在的 id（可为空数组）。
+4) 仅输出 JSON 列表，不要输出 Markdown、解释、代码块围栏。
 
 `;
     try {
@@ -1109,16 +1238,14 @@ export function DashboardPage() {
       const items = (parsed as TechnologySyncItemPayload[])
         .map(normalizeSyncItem)
         .filter((item): item is TechnologySyncItemPayload => Boolean(item));
-      const preview = buildSyncPreview(dashboard, items);
-      setDashboard(preview.graph);
-      setSyncDraftChanges({
-        addedIds: preview.addedIds,
-        updatedIds: preview.updatedIds
-      });
-      if (preview.addedIds[0] || preview.updatedIds[0]) {
-        setSelectedTechnologyId(preview.addedIds[0] ?? preview.updatedIds[0]);
+      const result = await cardSensusApi.syncTechnologies(items);
+      const graph = await cardSensusApi.getDashboardGraph();
+      setDashboard(graph);
+      setSyncDraftChanges(null);
+      if (result.added_ids[0] || result.updated_ids[0]) {
+        setSelectedTechnologyId(result.added_ids[0] ?? result.updated_ids[0]);
       }
-      showToast(`草稿已生成：新增 ${preview.addedIds.length}，更新 ${preview.updatedIds.length}。请确认后提交`);
+      showToast(`已写入数据库：新增 ${result.added_ids.length}，更新 ${result.updated_ids.length}`);
       setIsSyncDialogOpen(false);
       setSyncJsonText("");
     } catch (requestError) {
@@ -1140,6 +1267,16 @@ export function DashboardPage() {
     <main className="dashboard-shell">
       <section className="workspace-stage">
         <div className="graph-action-group">
+          <button
+            type="button"
+            className="graph-action-btn graph-action-btn--icon"
+            title="在第一层新增无依赖卡牌"
+            aria-label="在第一层新增无依赖卡牌"
+            disabled={creatingStandaloneCard || Boolean(creatingFromId) || isSyncDrafting}
+            onClick={() => void handleCreateStandaloneCard()}
+          >
+            {creatingStandaloneCard ? <LoadingOutlined spin /> : <PlusOutlined />}
+          </button>
           <button
             type="button"
             className="graph-action-btn graph-action-btn--icon"
@@ -1221,6 +1358,7 @@ export function DashboardPage() {
                   enterEditForTechnologyId={enterEditForTechnologyId}
                   onEnterEditConsumed={handleEnterEditConsumed}
                   onAppendResource={handleAppendResource}
+                  onRegenerateImage={handleRegenerateImage}
                 />
               </div>
             ) : null}
@@ -1473,7 +1611,7 @@ export function DashboardPage() {
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="JSON 同步卡牌">
           <div className="modal-card">
             <h3>JSON 同步卡牌</h3>
-            <p>输入 JSON 列表。重名或同 id 卡牌会更新，新增/更新卡牌先进入草稿高亮，确认后才写入数据库。</p>
+            <p>输入 JSON 列表。重名或同 id 卡牌会更新，点击应用后将直接写入数据库。</p>
             <textarea
               className="modal-json-input"
               value={syncJsonText}
@@ -1485,7 +1623,7 @@ export function DashboardPage() {
                 取消
               </button>
               <button type="button" className="modal-btn modal-btn--primary" disabled={syncing} onClick={handleApplySyncJson}>
-                {syncing ? "同步中..." : "应用"}
+                {syncing ? "同步中..." : "应用并写入"}
               </button>
             </div>
           </div>

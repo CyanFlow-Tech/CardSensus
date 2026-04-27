@@ -31,6 +31,7 @@ class TechnologyResponse(BaseModel):
     status: str
     rarity_index: float
     active_user_count: int
+    image_url: str = ""
     layout: LayoutResponse
     resource_count: int
 
@@ -123,6 +124,11 @@ class HealthResponse(BaseModel):
     status: str
 
 
+class AsyncActionResponse(BaseModel):
+    status: str
+    detail: str
+
+
 class TechnologyResourceNoteAppendRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
@@ -142,6 +148,7 @@ class TechnologySyncItemRequest(BaseModel):
     time_spent_hours: Optional[float] = Field(default=None, ge=0)
     rarity_index: Optional[float] = Field(default=None, ge=0, le=1)
     active_user_count: Optional[int] = Field(default=None, ge=0)
+    dependency_ids: Optional[List[str]] = None
 
 
 class TechnologySyncRequest(BaseModel):
@@ -161,6 +168,7 @@ class TechnologyExportItemResponse(BaseModel):
     time_spent_hours: float
     rarity_index: float
     active_user_count: int
+    dependency_ids: List[str]
 
 
 class TechnologyExportResponse(BaseModel):

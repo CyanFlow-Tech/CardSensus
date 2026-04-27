@@ -70,6 +70,7 @@ class TechnologyNode:
     active_user_count: int
     activity: ActivitySnapshot
     thresholds: ThresholdPolicy
+    image_url: str = ""
     resources: Tuple[ResourceLink, ...] = field(default_factory=tuple)
     layout: LayoutPosition = field(default_factory=lambda: LayoutPosition(x=0, y=0))
 

@@ -1,4 +1,5 @@
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:9000/api/v1";
+const DEFAULT_API_ORIGIN = new URL(DEFAULT_API_BASE_URL).origin;
 
 export async function httpGet<T>(path: string): Promise<T> {
   const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`);
@@ -79,5 +80,19 @@ export async function httpDelete(path: string): Promise<void> {
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);
   }
+}
+
+export function resolveApiAssetUrl(pathOrUrl: string): string {
+  const value = String(pathOrUrl ?? "").trim();
+  if (!value) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  if (value.startsWith("/")) {
+    return `${DEFAULT_API_ORIGIN}${value}`;
+  }
+  return `${DEFAULT_API_ORIGIN}/${value}`;
 }
 

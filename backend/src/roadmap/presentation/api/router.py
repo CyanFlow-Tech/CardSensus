@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from ...application.services import CardSensusQueryService
 from .schemas import (
+    AsyncActionResponse,
     DashboardGraphResponse,
     HealthResponse,
     ProjectCreateRequest,
@@ -66,6 +67,14 @@ def create_router(service: CardSensusQueryService) -> APIRouter:
         return TechnologyProfileResponse.model_validate(
             service.update_technology(technology_id, body.model_dump(exclude_unset=True))
         )
+
+    @router.post(
+        "/technologies/{technology_id}/regenerate-image",
+        response_model=AsyncActionResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def regenerate_technology_image(technology_id: str) -> AsyncActionResponse:
+        return AsyncActionResponse.model_validate(service.queue_regenerate_technology_image(technology_id))
 
     @router.post(
         "/technologies/{technology_id}/resources",

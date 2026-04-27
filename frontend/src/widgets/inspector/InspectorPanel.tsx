@@ -20,6 +20,7 @@ interface InspectorPanelProps {
   enterEditForTechnologyId: string | null;
   onEnterEditConsumed: () => void;
   onAppendResource?: (text: string) => void | Promise<void>;
+  onRegenerateImage?: (technologyId: string) => void | Promise<void>;
 }
 
 export function InspectorPanel({
@@ -34,7 +35,8 @@ export function InspectorPanel({
   onDeleteTechnology,
   enterEditForTechnologyId,
   onEnterEditConsumed,
-  onAppendResource
+  onAppendResource,
+  onRegenerateImage
 }: InspectorPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
   const prevTechIdRef = useRef<string | undefined>(undefined);
@@ -47,6 +49,7 @@ export function InspectorPanel({
   const [draftUsers, setDraftUsers] = useState(0);
   const [resourceInputOpen, setResourceInputOpen] = useState(false);
   const [resourceDraft, setResourceDraft] = useState("");
+  const [regeneratingImage, setRegeneratingImage] = useState(false);
   const resourceInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -145,9 +148,6 @@ export function InspectorPanel({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("确定要删除这张技术卡牌吗？相关依赖边与项目关联引用也会被移除。")) {
-      return;
-    }
     setDeleting(true);
     try {
       await onDeleteTechnology(technology.id);
@@ -171,6 +171,18 @@ export function InspectorPanel({
       setResourceInputOpen(false);
     } catch {
       /* 错误由父级展示 */
+    }
+  };
+
+  const handleRegenerateImage = async () => {
+    if (!technology || regeneratingImage) {
+      return;
+    }
+    setRegeneratingImage(true);
+    try {
+      await onRegenerateImage?.(technology.id);
+    } finally {
+      setRegeneratingImage(false);
     }
   };
 
@@ -407,6 +419,19 @@ export function InspectorPanel({
           </button>
         )}
       </div>
+      {isEditing ? (
+        <div className="inspector-panel__section">
+          <button
+            type="button"
+            className="inspector-resource-add"
+            disabled={regeneratingImage}
+            onClick={() => void handleRegenerateImage()}
+            aria-label="重新生成插图"
+          >
+            <span>{regeneratingImage ? "插图生成中..." : "重新生成插图"}</span>
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }

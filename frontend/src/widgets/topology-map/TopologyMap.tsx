@@ -26,6 +26,7 @@ import type { Project } from "../../entities/project/model/types";
 import type { Relation } from "../../entities/technology/model/types";
 import { formatHours, formatPercent } from "../../shared/lib/format";
 import { getRarityMeta } from "../../shared/lib/rarity";
+import { resolveApiAssetUrl } from "../../shared/api/http";
 
 type DependencyEdgeData = { dependencySourceId: string; dependencyTargetId: string };
 
@@ -157,7 +158,15 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
               {formatPercent(technology.rarity_index)}
             </span>
           </div>
-          <div className="tech-node__art" aria-label="卡面插图预留" role="img" />
+          <div className="tech-node__art" aria-label="卡面插图" role="img">
+            {technology.image_url ? (
+              <img
+                className="tech-node__art-image"
+                src={resolveApiAssetUrl(technology.image_url)}
+                alt={`${technology.name} 卡面`}
+              />
+            ) : null}
+          </div>
           <div className="tech-node__stats">
             <div className="tech-node__stat-chip">
               <span className="tech-node__stat-value">{formatHours(technology.time_spent_hours)}</span>
