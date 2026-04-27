@@ -74,7 +74,7 @@ export interface TechnologyLayoutItemPayload {
   y: number;
 }
 
-export const roadmapApi = {
+export const cardSensusApi = {
   getDashboardGraph: () => httpGet<DashboardGraphResponse>("/graph"),
   addDependencyRelation: (sourceId: string, targetId: string) =>
     httpPostNoContent("/relations", {

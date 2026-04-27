@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from roadmap.application.services import RoadmapQueryService
-from roadmap.presentation.api.schemas import (
+from ...application.services import CardSensusQueryService
+from .schemas import (
     DashboardGraphResponse,
     HealthResponse,
     ProjectCreateRequest,
@@ -20,8 +20,8 @@ from roadmap.presentation.api.schemas import (
 )
 
 
-def create_router(service: RoadmapQueryService) -> APIRouter:
-    router = APIRouter(prefix="/api/v1", tags=["roadmap"])
+def create_router(service: CardSensusQueryService) -> APIRouter:
+    router = APIRouter(prefix="/api/v1", tags=["cardsensus"])
 
     @router.get("/health", response_model=HealthResponse)
     def healthcheck() -> HealthResponse:

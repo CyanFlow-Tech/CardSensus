@@ -1,21 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
+import {
+  CopyOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  FileTextOutlined,
+  LoadingOutlined,
+  ReloadOutlined,
+  VerticalAlignTopOutlined
+} from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
-  roadmapApi,
+  cardSensusApi,
   type DashboardGraphResponse,
   type ProjectCreatePayload,
   type TechnologyProfileResponse,
   type TechnologySyncItemPayload,
   type TechnologyUpdatePayload
-} from "../../shared/api/roadmapApi";
+} from "../../shared/api/cardSensusApi";
 import { buildLayeredPositions } from "../../shared/lib/graphLayout";
 import { formatHours, formatPercent } from "../../shared/lib/format";
 import { InspectorPanel } from "../../widgets/inspector/InspectorPanel";
 import { TopologyMap } from "../../widgets/topology-map/TopologyMap";
 
-const TOAST_MS = 4200;
 const SYNC_DRAFT_ID_PREFIX = "tech-draft-";
 const ALL_DECK_ID = "deck-all-cards";
 
@@ -295,20 +303,6 @@ function projectIdToLayoutKey(projectId: string | null): number {
   return [...projectId].reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
-function DeckPinnedIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden className="deck-card__pinned-icon-svg">
-      <path
-        d="M5 2.5h6M6 2.5v3l2 2 2-2v-3M8 7.5V13.5M6 13.5h4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardGraphResponse | null>(null);
   const [selectedTechnologyId, setSelectedTechnologyId] = useState<string | null>(null);
@@ -316,7 +310,6 @@ export function DashboardPage() {
   const [selectedDeckId, setSelectedDeckId] = useState<string>(ALL_DECK_ID);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [toastVersion, setToastVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creatingFromId, setCreatingFromId] = useState<string | null>(null);
   const [enterEditForTechnologyId, setEnterEditForTechnologyId] = useState<string | null>(null);
@@ -349,21 +342,12 @@ export function DashboardPage() {
   }, []);
 
   const showToast = useCallback((message: string) => {
-    setToastVersion((v) => v + 1);
     setToast(message);
   }, []);
 
   const clearToast = useCallback(() => {
     setToast(null);
   }, []);
-
-  useEffect(() => {
-    if (!toast) {
-      return;
-    }
-    const id = window.setTimeout(() => setToast(null), TOAST_MS);
-    return () => window.clearTimeout(id);
-  }, [toast, toastVersion]);
 
   const handleEnterEditConsumed = useCallback(() => {
     setEnterEditForTechnologyId(null);
@@ -382,8 +366,8 @@ export function DashboardPage() {
     try {
       const positions = buildLayeredPositions(dashboard.technologies, dashboard.relations);
       const items = [...positions.entries()].map(([id, pos]) => ({ id, x: pos.x, y: pos.y }));
-      await roadmapApi.updateTechnologyLayouts(items);
-      const graph = await roadmapApi.getDashboardGraph();
+      await cardSensusApi.updateTechnologyLayouts(items);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       bumpMapLayout();
       showToast("已全局重排并保存布局到数据文件");
@@ -397,7 +381,7 @@ export function DashboardPage() {
   const handleDiscardSyncDraft = useCallback(async () => {
     clearToast();
     try {
-      const graph = await roadmapApi.getDashboardGraph();
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSyncDraftChanges(null);
       setSelectedTechnologyId(null);
@@ -419,8 +403,8 @@ export function DashboardPage() {
       const commitItems = dashboard.technologies
         .filter((technology) => changedIdSet.has(technology.id))
         .map(toSyncPayloadFromTechnology);
-      const result = await roadmapApi.syncTechnologies(commitItems);
-      const graph = await roadmapApi.getDashboardGraph();
+      const result = await cardSensusApi.syncTechnologies(commitItems);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSyncDraftChanges(null);
       showToast(`已提交：新增 ${result.added_ids.length}，更新 ${result.updated_ids.length}`);
@@ -432,7 +416,7 @@ export function DashboardPage() {
   }, [clearToast, dashboard, showToast, syncCommitting, syncDraftChanges]);
 
   useEffect(() => {
-    roadmapApi
+    cardSensusApi
       .getDashboardGraph()
       .then((response) => {
         setDashboard(response);
@@ -449,15 +433,18 @@ export function DashboardPage() {
       return;
     }
 
-    if (dashboard && isSyncDrafting) {
+    if (dashboard) {
       const localState = buildLocalTechnologyState(dashboard, selectedTechnologyId);
       if (localState) {
         setSelectedTechnology(localState);
       }
+    }
+
+    if (dashboard && isSyncDrafting) {
       return;
     }
 
-    roadmapApi
+    cardSensusApi
       .getTechnologyProfile(selectedTechnologyId)
       .then((response: TechnologyProfileResponse) => {
         setSelectedTechnology({
@@ -468,7 +455,7 @@ export function DashboardPage() {
         });
       })
       .catch((requestError) => {
-        showToast(requestError instanceof Error ? requestError.message : "节点详情加载失败");
+        showToast(requestError instanceof Error ? requestError.message : "卡牌详情加载失败");
       });
   }, [dashboard, isSyncDrafting, selectedTechnologyId, showToast]);
 
@@ -610,19 +597,19 @@ export function DashboardPage() {
       return;
     }
     if (isSyncDrafting) {
-      showToast("草稿同步中暂不支持新增衍生节点，请先确认或取消草稿");
+      showToast("草稿同步中暂不支持新增衍生卡牌，请先确认或取消草稿");
       return;
     }
     clearToast();
     setCreatingFromId(parentId);
     try {
-      const profile = await roadmapApi.createDerivedTechnology(parentId);
-      const graph = await roadmapApi.getDashboardGraph();
+      const profile = await cardSensusApi.createDerivedTechnology(parentId);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSelectedTechnologyId(profile.technology.id);
       setEnterEditForTechnologyId(profile.technology.id);
     } catch (requestError) {
-      showToast(requestError instanceof Error ? requestError.message : "创建节点失败");
+      showToast(requestError instanceof Error ? requestError.message : "创建卡牌失败");
     } finally {
       setCreatingFromId(null);
     }
@@ -700,8 +687,8 @@ export function DashboardPage() {
       }
 
       try {
-        await roadmapApi.addDependencyRelation(dependencyId, dependentId);
-        const graph = await roadmapApi.getDashboardGraph();
+        await cardSensusApi.addDependencyRelation(dependencyId, dependentId);
+        const graph = await cardSensusApi.getDashboardGraph();
         setDashboard(graph);
         showToast("已创建依赖关系并已保存");
       } catch (requestError) {
@@ -760,8 +747,8 @@ export function DashboardPage() {
       }
 
       try {
-        await roadmapApi.deleteDependencyRelation(dependencyId, dependentId);
-        const graph = await roadmapApi.getDashboardGraph();
+        await cardSensusApi.deleteDependencyRelation(dependencyId, dependentId);
+        const graph = await cardSensusApi.getDashboardGraph();
         setDashboard(graph);
         showToast("已删除依赖关系并已保存");
       } catch (requestError) {
@@ -824,8 +811,8 @@ export function DashboardPage() {
     }
     clearToast();
     try {
-      const profile = await roadmapApi.updateTechnology(technologyId, payload);
-      const graph = await roadmapApi.getDashboardGraph();
+      const profile = await cardSensusApi.updateTechnology(technologyId, payload);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSelectedTechnology({
         technology: profile.technology,
@@ -846,10 +833,10 @@ export function DashboardPage() {
     }
     clearToast();
     try {
-      await roadmapApi.deleteTechnology(technologyId);
+      await cardSensusApi.deleteTechnology(technologyId);
       setSelectedTechnologyId(null);
       setSelectedTechnology(emptyTechnologyState);
-      setDashboard(await roadmapApi.getDashboardGraph());
+      setDashboard(await cardSensusApi.getDashboardGraph());
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "删除失败");
       throw requestError;
@@ -867,8 +854,8 @@ export function DashboardPage() {
       }
       clearToast();
       try {
-        const profile = await roadmapApi.appendTechnologyResourceNote(selectedTechnologyId, text);
-        const graph = await roadmapApi.getDashboardGraph();
+        const profile = await cardSensusApi.appendTechnologyResourceNote(selectedTechnologyId, text);
+        const graph = await cardSensusApi.getDashboardGraph();
         setDashboard(graph);
         setSelectedTechnology({
           technology: profile.technology,
@@ -951,7 +938,7 @@ export function DashboardPage() {
     clearToast();
     const technologyIds = selectedDeckTechnologyIds;
     if (technologyIds.length === 0) {
-      showToast("请至少选择一个节点后再确认");
+      showToast("请至少选择一张卡牌后再确认");
       return;
     }
     const payload: ProjectCreatePayload = {
@@ -959,8 +946,8 @@ export function DashboardPage() {
     };
     setCreatingDeck(true);
     try {
-      const profile = await roadmapApi.createProject(payload);
-      const graph = await roadmapApi.getDashboardGraph();
+      const profile = await cardSensusApi.createProject(payload);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSelectedDeckId(profile.project.id);
       setSelectedTechnologyId(null);
@@ -994,12 +981,12 @@ export function DashboardPage() {
     }
     setUpdatingDeck(true);
     try {
-      const profile = await roadmapApi.updateProject(editingDeckId, {
+      const profile = await cardSensusApi.updateProject(editingDeckId, {
         name,
         summary,
         technology_ids: technologyIds
       });
-      const graph = await roadmapApi.getDashboardGraph();
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       setSelectedDeckId(editingDeckId);
       setEditingDeckId(null);
@@ -1026,8 +1013,8 @@ export function DashboardPage() {
     clearToast();
     setDeletingDeckId(deckId);
     try {
-      await roadmapApi.deleteProject(deckId);
-      const graph = await roadmapApi.getDashboardGraph();
+      await cardSensusApi.deleteProject(deckId);
+      const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       if (selectedDeckId === deckId) {
         setSelectedDeckId(ALL_DECK_ID);
@@ -1053,19 +1040,19 @@ export function DashboardPage() {
 
   const handleCopyModelPrompt = async () => {
     const prompt = `你是技术知识图谱整理助手，善于对代码、博客文章、技术文档等进行归纳总结，提取出其中的技术栈。` +
-    `现有一个DAG图谱，以节点表示技术，边表示依赖关系。我需要你根据现有节点内容，生成针对上传文件的图谱更新JSON列表。` +
-    `如果上传的文件中包含current.json，则现有节点定义在该文件中，否则现有节点为空。`+
+    `现有一个DAG图谱，以卡牌表示技术，边表示依赖关系。我需要你根据现有卡牌内容，生成针对上传文件的图谱更新JSON列表。` +
+    `如果上传的文件中包含current.json，则现有卡牌定义在该文件中，否则现有卡牌为空。`+
     `你生成的JSON列表的每一项必须满足以下数据结构：
 - name (必填，尽量使用中文，专有名词可以使用英文，保持简短)
-- id (可选，若已有节点请复用其 id)
+- id (可选，若已有卡牌请复用其 id)
 - summary (描述该技术的定义、用途、特点、优势等，保持简短)
 - time_spent_hours (评估我在上传文件中实现这个技术所花费的时间)
 - rarity_index (设为默认值1)
 - active_user_count (设为默认值1)
 
 要求：
-1) 优先复用当前节点池里语义最接近的节点（输出其 id 并可更新其他字段）。
-2) 若没有合适节点，则创建新节点（不提供 id 也可）。
+1) 优先复用当前卡牌池里语义最接近的卡牌（输出其 id 并可更新其他字段）。
+2) 若没有合适卡牌，则创建新卡牌（不提供 id 也可）。
 3) 仅输出 JSON 列表，不要输出 Markdown、解释、代码块围栏。
 
 `;
@@ -1081,7 +1068,7 @@ export function DashboardPage() {
     clearToast();
     setExporting(true);
     try {
-      const payload = await roadmapApi.exportTechnologies();
+      const payload = await cardSensusApi.exportTechnologies();
       const blob = new Blob([JSON.stringify(payload.items, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       // const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -1156,8 +1143,8 @@ export function DashboardPage() {
           <button
             type="button"
             className="graph-action-btn graph-action-btn--icon"
-            title="通过 JSON 同步节点"
-            aria-label="通过 JSON 同步节点"
+            title="通过 JSON 同步卡牌"
+            aria-label="通过 JSON 同步卡牌"
             onClick={handleOpenSyncDialog}
           >
             <FileTextOutlined />
@@ -1174,8 +1161,8 @@ export function DashboardPage() {
           <button
             type="button"
             className="graph-action-btn graph-action-btn--icon"
-            title="下载当前节点 JSON"
-            aria-label="下载当前节点 JSON"
+            title="下载当前卡牌 JSON"
+            aria-label="下载当前卡牌 JSON"
             disabled={exporting}
             onClick={handleDownloadNodeJson}
           >
@@ -1184,8 +1171,8 @@ export function DashboardPage() {
           <button
             type="button"
             className="graph-action-btn graph-action-btn--icon"
-            title="全局重排节点布局并写入数据文件"
-            aria-label="全局重排节点布局"
+            title="全局重排卡牌布局并写入数据文件"
+            aria-label="全局重排卡牌布局"
             disabled={isSyncDrafting || relayoutSaving}
             onClick={() => void handleRelayout()}
           >
@@ -1215,7 +1202,7 @@ export function DashboardPage() {
             ) : (
               <div className="deck-view-placeholder" role="status">
                 <p className="deck-view-placeholder__title">选择一个牌组</p>
-                <p className="deck-view-placeholder__hint">左侧会展示该牌组包含的全部节点及其依赖关系。</p>
+                <p className="deck-view-placeholder__hint">左侧会展示该牌组包含的全部卡牌及其依赖关系。</p>
               </div>
             )}
 
@@ -1223,6 +1210,7 @@ export function DashboardPage() {
               <div className="workspace-stage__inspector">
                 <InspectorPanel
                   technology={selectedTechnology.technology}
+                  loading={!selectedTechnology.technology}
                   relatedProjects={selectedTechnology.relatedProjects}
                   prerequisites={selectedTechnology.prerequisites}
                   unlocks={selectedTechnology.unlocks}
@@ -1244,8 +1232,8 @@ export function DashboardPage() {
                 type="search"
                 value={deckSearchKeyword}
                 onChange={(event) => setDeckSearchKeyword(event.target.value)}
-                placeholder={isCreatingDeck || isEditingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
-                aria-label={isCreatingDeck || isEditingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
+                placeholder={isCreatingDeck || isEditingDeck ? "搜索和过滤卡牌" : "搜索牌组名称或说明"}
+                aria-label={isCreatingDeck || isEditingDeck ? "搜索和过滤卡牌" : "搜索牌组名称或说明"}
               />
               <div className="deck-sidebar__actions">
                 {isCreatingDeck ? (
@@ -1341,12 +1329,12 @@ export function DashboardPage() {
                           type="checkbox"
                           checked={selectedDeckTechnologyIds.includes(technology.id)}
                           onChange={() => handleToggleDeckTechnology(technology.id)}
-                          aria-label={`选择节点 ${technology.name}`}
+                          aria-label={`选择卡牌 ${technology.name}`}
                         />
                       </div>
                       <div className="deck-card__meta">
                         <span>时间 {formatHours(technology.time_spent_hours)}</span>
-                        <span>稀有度 {formatPercent(technology.rarity_index)}</span>
+                        <span>品质 {formatPercent(technology.rarity_index)}</span>
                         <span>牌组 {projectCount}</span>
                       </div>
                       <div className="deck-card__body">
@@ -1357,7 +1345,7 @@ export function DashboardPage() {
                   ))
                 ) : (
                   <div className="deck-sidebar__empty" role="status">
-                    没有命中该关键词的节点
+                    没有命中该关键词的卡牌
                   </div>
                 )
               ) : filteredDeckCards.length > 0 ? (
@@ -1369,14 +1357,14 @@ export function DashboardPage() {
                         className={`deck-card deck-card--pinned ${selectedDeckId === pinnedDeckCard.deckId ? "deck-card--active" : ""}`}
                         onClick={() => handleSelectDeckProject(pinnedDeckCard.deckId)}
                       >
-                        <div className="deck-card__pinned-badge">
-                          <DeckPinnedIcon />
-                          <span>置顶</span>
-                        </div>
                         <div className="deck-card__meta">
                           <span>时间 {formatHours(pinnedDeckCard.totalHours)}</span>
-                          <span>稀有度 {formatPercent(pinnedDeckCard.rarityProduct)}</span>
-                          <span>达成 1人</span>
+                          <span>品质 {formatPercent(pinnedDeckCard.rarityProduct)}</span>
+                          <span>拥趸 1</span>
+                          <span className="deck-card__pinned-badge">
+                            <VerticalAlignTopOutlined />
+                            <span>置顶</span>
+                          </span>
                         </div>
                         <div className="deck-card__title-row">
                           <strong>{pinnedDeckCard.name}</strong>
@@ -1402,8 +1390,8 @@ export function DashboardPage() {
                         >
                           <div className="deck-card__meta">
                             <span>时间 {formatHours(deckCard.totalHours)}</span>
-                            <span>稀有度 {formatPercent(deckCard.rarityProduct)}</span>
-                            <span>达成 1人</span>
+                            <span>品质 {formatPercent(deckCard.rarityProduct)}</span>
+                            <span>拥趸 1</span>
                           </div>
                           <div className="deck-card__title-row">
                             <strong>{deckCard.name}</strong>
@@ -1482,10 +1470,10 @@ export function DashboardPage() {
       </section>
 
       {isSyncDialogOpen ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="JSON 同步节点">
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="JSON 同步卡牌">
           <div className="modal-card">
-            <h3>JSON 同步节点</h3>
-            <p>输入 JSON 列表。重名或同 id 节点会更新，新增/更新节点先进入草稿高亮，确认后才写入数据库。</p>
+            <h3>JSON 同步卡牌</h3>
+            <p>输入 JSON 列表。重名或同 id 卡牌会更新，新增/更新卡牌先进入草稿高亮，确认后才写入数据库。</p>
             <textarea
               className="modal-json-input"
               value={syncJsonText}
@@ -1503,11 +1491,9 @@ export function DashboardPage() {
           </div>
         </div>
       ) : null}
-      {toast ? (
-        <div className="workspace-toast" role="status" aria-live="polite">
-          {toast}
-        </div>
-      ) : null}
+      <div className="workspace-statusbar" role="status" aria-live="polite">
+        {toast ?? "就绪"}
+      </div>
     </main>
   );
 }

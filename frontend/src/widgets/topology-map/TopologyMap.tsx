@@ -43,7 +43,7 @@ interface TopologyMapProps {
   creatingFromId: string | null;
   glowingTechnologyIds: string[];
   editable?: boolean;
-  /** 在创建/删除节点等结构变化后自增，用于触发布局后的 fitView */
+  /** 在创建/删除卡牌等结构变化后自增，用于触发布局后的 fitView */
   layoutKey: number;
 }
 
@@ -132,8 +132,8 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
               type="button"
               className="tech-node__add-btn"
               disabled={isCreating}
-              title="在依赖上一层新建节点"
-              aria-label="在依赖上一层新建节点"
+              title="在依赖上一层新建卡牌"
+              aria-label="在依赖上一层新建卡牌"
               onClick={(event) => {
                 event.stopPropagation();
                 event.preventDefault();
@@ -309,7 +309,7 @@ export function TopologyMap({
     setDependencyDrag(nextState);
   }, []);
 
-  /** 文件中的坐标；仅对仍为默认 (0,0) 的新节点做临时占位（下一依赖层上的空位），不重算全局 layout、不改 graphLayout 算法 */
+  /** 文件中的坐标；仅对仍为默认 (0,0) 的新卡牌做临时占位（下一依赖层上的空位），不重算全局 layout、不改 graphLayout 算法 */
   const displayPositions = useMemo(() => {
     const result = new Map<string, { x: number; y: number }>();
     for (const t of technologies) {

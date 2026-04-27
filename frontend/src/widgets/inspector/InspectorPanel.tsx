@@ -1,14 +1,14 @@
-import { PlusOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
-import type { TechnologyUpdatePayload } from "../../shared/api/roadmapApi";
+import type { TechnologyUpdatePayload } from "../../shared/api/cardSensusApi";
 import { LinkifiedText, resourceDisplayText } from "../../shared/lib/linkifyText";
-import { formatHours } from "../../shared/lib/format";
-import { getRarityMeta } from "../../shared/lib/rarity";
+import { formatHours, formatPercent } from "../../shared/lib/format";
 
 interface InspectorPanelProps {
   technology: TechnologyDetail | null;
+  loading?: boolean;
   relatedProjects: Project[];
   prerequisites: Technology[];
   unlocks: Technology[];
@@ -22,42 +22,9 @@ interface InspectorPanelProps {
   onAppendResource?: (text: string) => void | Promise<void>;
 }
 
-function IconPencil() {
-  return (
-    <svg className="inspector-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M4 20h4l9.5-9.5-4-4L4 16v4z" strokeLinejoin="round" />
-      <path d="m13.5 6.5 4 4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconTrash() {
-  return (
-    <svg className="inspector-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" strokeLinecap="round" />
-      <path d="M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 1.8h6a2 2 0 0 0 1.8-1.3L20 7" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconCheck() {
-  return (
-    <svg className="inspector-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
-      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconX() {
-  return (
-    <svg className="inspector-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export function InspectorPanel({
   technology,
+  loading = false,
   relatedProjects,
   prerequisites,
   unlocks,
@@ -122,16 +89,33 @@ export function InspectorPanel({
     }
   }, [technology, enterEditForTechnologyId, onEnterEditConsumed]);
 
-  if (!technology) {
+  if (!technology && loading) {
     return (
-      <aside className="inspector-panel inspector-panel--placeholder">
-        <h2>选择一个技术节点</h2>
-        <p>查看该节点的熟练度状态、前置依赖、所在牌组与沉淀资料。</p>
+      <aside className="inspector-panel inspector-panel--skeleton" aria-label="卡牌详情加载中" aria-busy="true">
+        <div className="inspector-skeleton inspector-skeleton--title" />
+        <div className="inspector-skeleton inspector-skeleton--line" />
+        <div className="inspector-skeleton inspector-skeleton--line inspector-skeleton--line-short" />
+        <div className="inspector-panel__section inspector-panel__metrics">
+          <div><span className="inspector-skeleton inspector-skeleton--chip" /></div>
+          <div><span className="inspector-skeleton inspector-skeleton--chip" /></div>
+          <div><span className="inspector-skeleton inspector-skeleton--chip" /></div>
+        </div>
+        <div className="inspector-panel__section">
+          <div className="inspector-skeleton inspector-skeleton--line" />
+          <div className="inspector-skeleton inspector-skeleton--line inspector-skeleton--line-short" />
+        </div>
       </aside>
     );
   }
 
-  const rarity = getRarityMeta(technology.rarity_index);
+  if (!technology) {
+    return (
+      <aside className="inspector-panel inspector-panel--placeholder">
+        <h2>选择一张技术卡牌</h2>
+        <p>查看该卡牌的熟练度状态、前置依赖、所在牌组与沉淀资料。</p>
+      </aside>
+    );
+  }
 
   const handleSave = async () => {
     setSaving(true);
@@ -161,7 +145,7 @@ export function InspectorPanel({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("确定要删除此技术节点吗？相关依赖边与项目关联引用也会被移除。")) {
+    if (!window.confirm("确定要删除这张技术卡牌吗？相关依赖边与项目关联引用也会被移除。")) {
       return;
     }
     setDeleting(true);
@@ -209,11 +193,11 @@ export function InspectorPanel({
             )}
           </div>
 
-          <div className="inspector-panel__tools" role="toolbar" aria-label="节点操作">
+          <div className="inspector-panel__tools" role="toolbar" aria-label="卡牌操作">
             {!isEditing && (
               <>
                 <button type="button" className="inspector-icon-btn" title="编辑" onClick={() => setIsEditing(true)} aria-label="进入编辑">
-                  <IconPencil />
+                  <EditOutlined />
                 </button>
                 <button
                   type="button"
@@ -221,9 +205,9 @@ export function InspectorPanel({
                   title="删除"
                   disabled={deleting}
                   onClick={handleDelete}
-                  aria-label="删除节点"
+                  aria-label="删除卡牌"
                 >
-                  <IconTrash />
+                  <DeleteOutlined />
                 </button>
               </>
             )}
@@ -237,7 +221,7 @@ export function InspectorPanel({
                   onClick={handleSave}
                   aria-label="保存"
                 >
-                  <IconCheck />
+                  <CheckOutlined />
                 </button>
                 <button
                   type="button"
@@ -247,7 +231,7 @@ export function InspectorPanel({
                   onClick={handleCancel}
                   aria-label="取消编辑"
                 >
-                  <IconX />
+                  <CloseOutlined />
                 </button>
                 <button
                   type="button"
@@ -255,9 +239,9 @@ export function InspectorPanel({
                   title="删除"
                   disabled={saving || deleting}
                   onClick={handleDelete}
-                  aria-label="删除节点"
+                  aria-label="删除卡牌"
                 >
-                  <IconTrash />
+                  <DeleteOutlined />
                 </button>
               </>
             )}
@@ -326,7 +310,7 @@ export function InspectorPanel({
             </div>
             <div>
               <span>品质</span>
-              <strong className={`rarity-text--${rarity.colorToken}`}>{rarity.label}</strong>
+              <strong>{formatPercent(technology.rarity_index)}</strong>
             </div>
             <div>
               <span>拥趸</span>

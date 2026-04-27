@@ -5,7 +5,7 @@ from typing import Dict, List
 
 from fastapi import HTTPException, status
 
-from roadmap.application.dto import (
+from .dto import (
     DashboardGraphDTO,
     LayoutDTO,
     ProjectDTO,
@@ -17,13 +17,13 @@ from roadmap.application.dto import (
     TechnologyDetailDTO,
     TechnologyProfileDTO,
 )
-from roadmap.domain.models import ProjectNode, RelationEdge, RelationType, TechnologyNode
-from roadmap.domain.repositories import RoadmapRepository
-from roadmap.domain.services import TechnologyStatusPolicy
+from ..domain.models import ProjectNode, RelationEdge, RelationType, TechnologyNode
+from ..domain.repositories import CardSensusRepository
+from ..domain.services import TechnologyStatusPolicy
 
 
-class RoadmapQueryService:
-    def __init__(self, repository: RoadmapRepository, status_policy: TechnologyStatusPolicy | None = None) -> None:
+class CardSensusQueryService:
+    def __init__(self, repository: CardSensusRepository, status_policy: TechnologyStatusPolicy | None = None) -> None:
         self._repository = repository
         self._status_policy = status_policy or TechnologyStatusPolicy()
 

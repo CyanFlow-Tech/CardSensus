@@ -3,10 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, List, Mapping
 
-from roadmap.domain.models import ProjectNode, RelationEdge, TechnologyNode
+from .models import ProjectNode, RelationEdge, TechnologyNode
 
 
-class RoadmapRepository(ABC):
+class CardSensusRepository(ABC):
     @abstractmethod
     def list_technologies(self) -> Iterable[TechnologyNode]:
         raise NotImplementedError
@@ -29,22 +29,22 @@ class RoadmapRepository(ABC):
 
     @abstractmethod
     def create_project(self, technology_ids: Iterable[str]) -> ProjectNode:
-        """创建一个新牌组，并将其关联到给定技术节点；新牌组应插入到列表顶部。"""
+        """创建一个新牌组，并将其关联到给定技术卡牌；新牌组应插入到列表顶部。"""
         raise NotImplementedError
 
     @abstractmethod
     def delete_project(self, project_id: str) -> None:
-        """删除一个牌组，不影响技术节点与依赖关系。"""
+        """删除一个牌组，不影响技术卡牌与依赖关系。"""
         raise NotImplementedError
 
     @abstractmethod
     def update_project(self, project_id: str, *, name: str, summary: str, technology_ids: Iterable[str]) -> ProjectNode:
-        """更新牌组名称、说明与关联技术节点。"""
+        """更新牌组名称、说明与关联技术卡牌。"""
         raise NotImplementedError
 
     @abstractmethod
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
-        """在依赖关系上位于 parent 的上一层新建节点：parent ->(dependency)-> new。"""
+        """在依赖关系上位于 parent 的上一层新建卡牌：parent ->(dependency)-> new。"""
         raise NotImplementedError
 
     @abstractmethod
@@ -59,7 +59,7 @@ class RoadmapRepository(ABC):
 
     @abstractmethod
     def update_technology_layouts(self, layouts: Mapping[str, tuple[float, float]]) -> None:
-        """批量更新节点在图谱中的 layout.x / layout.y（写入持久化）。"""
+        """批量更新卡牌在图谱中的 layout.x / layout.y（写入持久化）。"""
         raise NotImplementedError
 
     @abstractmethod
@@ -72,15 +72,15 @@ class RoadmapRepository(ABC):
 
     @abstractmethod
     def sync_technologies(self, items: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
-        """批量同步节点：同 id/同名称会更新，否则新增。"""
+        """批量同步卡牌：同 id/同名称会更新，否则新增。"""
         raise NotImplementedError
 
     @abstractmethod
     def export_technologies(self) -> List[Dict[str, Any]]:
-        """导出当前节点池，供外部模型生成增量 JSON 使用。"""
+        """导出当前卡牌池，供外部模型生成增量 JSON 使用。"""
         raise NotImplementedError
 
     @abstractmethod
     def append_technology_resource_note(self, technology_id: str, text: str) -> None:
-        """在指定技术节点下追加一条笔记型资料（写入 resources 数组）。"""
+        """在指定技术卡牌下追加一条笔记型资料（写入 resources 数组）。"""
         raise NotImplementedError

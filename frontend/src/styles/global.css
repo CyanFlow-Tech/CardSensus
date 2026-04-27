@@ -21,14 +21,21 @@
   box-sizing: border-box;
 }
 
+/* Global flat style: remove all shadows */
+*,
+*::before,
+*::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(213, 106, 58, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(111, 143, 114, 0.2), transparent 30%),
-    linear-gradient(135deg, #efe6d8 0%, #f7f4ee 45%, #edf3eb 100%);
+  background: #ffffff;  /* fallback for old browsers */
+  /* background: -webkit-linear-gradient(to right, #29EAC4, #4284DB);  /* Chrome 10-25, Safari 5.1-6 */
+  /* background: linear-gradient(to right, #29EAC4, #4284DB); W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+   */
   color: var(--text);
 }
 
@@ -58,22 +65,20 @@ a {
   min-height: 0;
 }
 
-.workspace-toast {
-  position: fixed;
-  top: max(16px, env(safe-area-inset-top));
-  right: max(16px, env(safe-area-inset-right));
-  z-index: 200;
-  max-width: min(420px, calc(100vw - 32px));
-  margin: 0;
-  padding: 10px 16px;
+.workspace-statusbar {
+  position: static;
+  flex: 0 0 auto;
+  margin: 8px 14px 12px;
+  padding: 10px 14px;
   border-radius: 10px;
-  background: rgba(213, 48, 36, 0.12);
-  border: 1px solid rgba(213, 48, 36, 0.35);
-  color: #7a1e16;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(31, 45, 35, 0.18);
+  color: var(--text);
   font-size: 0.88rem;
-  text-align: center;
-  box-shadow: 0 8px 32px rgba(45, 35, 28, 0.15);
-  pointer-events: none;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-capsule-nav {
@@ -628,7 +633,6 @@ a {
 }
 
 .deck-card--pinned {
-  margin-right: 10px;
   background: linear-gradient(180deg, rgba(255, 252, 245, 0.98), rgba(255, 255, 255, 0.92));
 }
 
@@ -664,19 +668,10 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  width: fit-content;
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: rgba(213, 106, 58, 0.1);
+  padding: 0;
   color: var(--accent-strong);
   font-size: 0.76rem;
   font-weight: 800;
-}
-
-.deck-card__pinned-icon-svg {
-  width: 14px;
-  height: 14px;
-  display: block;
 }
 
 .deck-card__body {
@@ -702,6 +697,22 @@ a {
   font-weight: 700;
   color: var(--muted);
   text-align: right;
+}
+
+.deck-card__pinned-badge span {
+  color: inherit;
+}
+
+.deck-card__meta .deck-card__pinned-badge {
+  margin-left: auto;
+}
+
+.deck-card__meta .deck-card__pinned-badge,
+.deck-card__meta .deck-card__pinned-badge span {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .deck-card__tools {
@@ -859,7 +870,7 @@ a {
   cursor: wait;
 }
 
-/* 竖长「卡牌」节点 */
+/* 竖长卡牌 */
 .tech-node {
   width: 160px;
   min-height: 248px;
@@ -1162,6 +1173,48 @@ a {
   gap: 20px;
   box-shadow: var(--shadow);
   position: static;
+}
+
+.inspector-panel--skeleton {
+  display: grid;
+  gap: 14px;
+}
+
+.inspector-skeleton {
+  display: inline-block;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.12));
+  background-size: 220% 100%;
+  animation: inspector-skeleton-shimmer 1.3s ease-in-out infinite;
+}
+
+.inspector-skeleton--title {
+  width: 56%;
+  height: 28px;
+}
+
+.inspector-skeleton--line {
+  width: 100%;
+  height: 14px;
+}
+
+.inspector-skeleton--line-short {
+  width: 72%;
+}
+
+.inspector-skeleton--chip {
+  width: 72px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+@keyframes inspector-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .inspector-panel .eyebrow {

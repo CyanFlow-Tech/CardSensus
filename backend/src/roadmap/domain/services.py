@@ -1,4 +1,4 @@
-from roadmap.domain.models import ActivitySnapshot, ProficiencyStatus, ThresholdPolicy
+from .models import ActivitySnapshot, ProficiencyStatus, ThresholdPolicy
 
 
 class TechnologyStatusPolicy:

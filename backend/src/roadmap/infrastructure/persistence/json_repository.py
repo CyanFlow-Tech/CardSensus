@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
-from roadmap.domain.models import (
+from ...domain.models import (
     ActivitySnapshot,
     LayoutPosition,
     ProjectNode,
@@ -19,10 +19,10 @@ from roadmap.domain.models import (
     TechnologyNode,
     ThresholdPolicy,
 )
-from roadmap.domain.repositories import RoadmapRepository
+from ...domain.repositories import CardSensusRepository
 
 
-class JsonRoadmapRepository(RoadmapRepository):
+class JsonCardSensusRepository(CardSensusRepository):
     def __init__(self, data_file: Path | None = None) -> None:
         default_path = Path(__file__).resolve().parents[4] / "data" / "seed.json"
         self._data_file = data_file or default_path
@@ -155,7 +155,7 @@ class JsonRoadmapRepository(RoadmapRepository):
                 break
         else:  # pragma: no cover
             new_id = f"tech-{uuid.uuid4().hex}"
-        new_row = self._build_default_technology_row(new_id, name="新节点")
+        new_row = self._build_default_technology_row(new_id, name="新卡牌")
         data["technologies"].append(new_row)
         data["relations"].append(
             {"source_id": parent_id, "target_id": new_id, "relation_type": "dependency"}

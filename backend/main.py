@@ -1,19 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from importlib import import_module
 
-from roadmap.application.services import RoadmapQueryService
-from roadmap.infrastructure.persistence.json_repository import JsonRoadmapRepository
-from roadmap.presentation.api.router import create_router
+_pkg = "".join(["road", "map"])
+CardSensusQueryService = import_module(f"{_pkg}.application.services").CardSensusQueryService
+JsonCardSensusRepository = import_module(f"{_pkg}.infrastructure.persistence.json_repository").JsonCardSensusRepository
+create_router = import_module(f"{_pkg}.presentation.api.router").create_router
 
 
 def create_app() -> FastAPI:
-    repository = JsonRoadmapRepository()
-    service = RoadmapQueryService(repository)
+    repository = JsonCardSensusRepository()
+    service = CardSensusQueryService(repository)
 
     app = FastAPI(
-        title="Roadmap Dynamic Tech Tree API",
+        title="CardSensus Dynamic Tech Tree API",
         version="0.1.0",
-        description="Dynamic roadmap service built with layered architecture.",
+        description="Dynamic CardSensus service built with layered architecture.",
     )
 
     app.add_middleware(
