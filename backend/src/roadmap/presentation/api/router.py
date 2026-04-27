@@ -113,4 +113,12 @@ def create_router(service: RoadmapQueryService) -> APIRouter:
     def create_project(body: ProjectCreateRequest) -> ProjectProfileResponse:
         return ProjectProfileResponse.model_validate(service.create_project(body.technology_ids))
 
+    @router.delete(
+        "/projects/{project_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_project(project_id: str) -> Response:
+        service.delete_project(project_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     return router

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CopyOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, DownloadOutlined, FileTextOutlined, LoadingOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
 import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
@@ -332,6 +332,7 @@ export function DashboardPage() {
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
   const [selectedDeckTechnologyIds, setSelectedDeckTechnologyIds] = useState<string[]>([]);
   const [creatingDeck, setCreatingDeck] = useState(false);
+  const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
   const deckListRef = useRef<HTMLDivElement | null>(null);
   const deckItemRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const isSyncDrafting = syncDraftChanges !== null;
@@ -945,6 +946,33 @@ export function DashboardPage() {
     }
   };
 
+  const handleDeleteDeck = async (deckId: string) => {
+    if (deletingDeckId || creatingDeck) {
+      return;
+    }
+    const confirmed = window.confirm("确认删除当前牌组？此操作不会删除牌组内卡牌。");
+    if (!confirmed) {
+      return;
+    }
+    clearToast();
+    setDeletingDeckId(deckId);
+    try {
+      await roadmapApi.deleteProject(deckId);
+      const graph = await roadmapApi.getDashboardGraph();
+      setDashboard(graph);
+      if (selectedDeckId === deckId) {
+        setSelectedDeckId(ALL_DECK_ID);
+        setSelectedTechnologyId(null);
+        setSelectedTechnology(emptyTechnologyState);
+      }
+      showToast("牌组已删除（卡牌保留）");
+    } catch (requestError) {
+      showToast(requestError instanceof Error ? requestError.message : "删除牌组失败");
+    } finally {
+      setDeletingDeckId(null);
+    }
+  };
+
   const handleOpenSyncDialog = () => {
     if (isSyncDrafting) {
       showToast("当前有待确认草稿，请先点击右上角确认或取消");
@@ -1150,20 +1178,34 @@ export function DashboardPage() {
                 placeholder={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
                 aria-label={isCreatingDeck ? "搜索和过滤节点" : "搜索牌组名称或说明"}
               />
-              <button
-                type="button"
-                className={`deck-sidebar__action ${isCreatingDeck ? "deck-sidebar__action--confirm" : ""}`}
-                disabled={creatingDeck}
-                onClick={() => {
-                  if (isCreatingDeck) {
-                    void handleConfirmCreateDeck();
-                    return;
-                  }
-                  handleToggleDeckCreateMode();
-                }}
-              >
-                {isCreatingDeck ? (creatingDeck ? "确认中..." : "确认") : "增加牌组"}
-              </button>
+              <div className="deck-sidebar__actions">
+                <button
+                  type="button"
+                  className={`deck-sidebar__action ${isCreatingDeck ? "deck-sidebar__action--confirm" : ""}`}
+                  disabled={creatingDeck}
+                  onClick={() => {
+                    if (isCreatingDeck) {
+                      void handleConfirmCreateDeck();
+                      return;
+                    }
+                    handleToggleDeckCreateMode();
+                  }}
+                >
+                  {isCreatingDeck ? (creatingDeck ? "确认中..." : "确认") : "增加牌组"}
+                </button>
+                {isCreatingDeck ? (
+                  <button
+                    type="button"
+                    className="deck-sidebar__action deck-sidebar__action--cancel"
+                    disabled={creatingDeck}
+                    onClick={handleToggleDeckCreateMode}
+                    aria-label="取消创建牌组"
+                    title="取消创建牌组"
+                  >
+                    取消
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="deck-sidebar__list" aria-label="牌组列表">
@@ -1203,55 +1245,70 @@ export function DashboardPage() {
               ) : filteredDeckCards.length > 0 ? (
                 <>
                   {pinnedDeckCard ? (
-                    <button
-                      key={pinnedDeckCard.deckId}
-                      type="button"
-                      className={`deck-card deck-card--pinned ${selectedDeckId === pinnedDeckCard.deckId ? "deck-card--active" : ""}`}
-                      onClick={() => handleSelectDeckProject(pinnedDeckCard.deckId)}
-                    >
-                      <div className="deck-card__pinned-badge">
-                        <DeckPinnedIcon />
-                        <span>置顶</span>
-                      </div>
-                      <div className="deck-card__meta">
-                        <span>时间 {formatHours(pinnedDeckCard.totalHours)}</span>
-                        <span>稀有度 {formatPercent(pinnedDeckCard.rarityProduct)}</span>
-                        <span>达成 1人</span>
-                      </div>
-                      <div className="deck-card__title-row">
-                        <strong>{pinnedDeckCard.name}</strong>
-                        <span>{pinnedDeckCard.technologies.length} 张卡牌</span>
-                      </div>
-                      <div className="deck-card__body">
-                        <p>{pinnedDeckCard.summary}</p>
-                      </div>
-                    </button>
+                    <div key={pinnedDeckCard.deckId} className="deck-card-wrap">
+                      <button
+                        type="button"
+                        className={`deck-card deck-card--pinned ${selectedDeckId === pinnedDeckCard.deckId ? "deck-card--active" : ""}`}
+                        onClick={() => handleSelectDeckProject(pinnedDeckCard.deckId)}
+                      >
+                        <div className="deck-card__pinned-badge">
+                          <DeckPinnedIcon />
+                          <span>置顶</span>
+                        </div>
+                        <div className="deck-card__meta">
+                          <span>时间 {formatHours(pinnedDeckCard.totalHours)}</span>
+                          <span>稀有度 {formatPercent(pinnedDeckCard.rarityProduct)}</span>
+                          <span>达成 1人</span>
+                        </div>
+                        <div className="deck-card__title-row">
+                          <strong>{pinnedDeckCard.name}</strong>
+                          <span>{pinnedDeckCard.technologies.length} 张卡牌</span>
+                        </div>
+                        <div className="deck-card__body">
+                          <p>{pinnedDeckCard.summary}</p>
+                        </div>
+                      </button>
+                    </div>
                   ) : null}
 
                   <div ref={deckListRef} className="deck-sidebar__scroll">
                     {scrollableDeckCards.map(({ deckId, name, summary, technologies, totalHours, rarityProduct }) => (
-                      <button
-                        key={deckId}
-                        type="button"
-                        ref={(element) => {
-                          deckItemRefs.current.set(deckId, element);
-                        }}
-                        className={`deck-card ${selectedDeckId === deckId ? "deck-card--active" : ""}`}
-                        onClick={() => handleSelectDeckProject(deckId)}
-                      >
-                        <div className="deck-card__meta">
-                          <span>时间 {formatHours(totalHours)}</span>
-                          <span>稀有度 {formatPercent(rarityProduct)}</span>
-                          <span>达成 1人</span>
-                        </div>
-                        <div className="deck-card__title-row">
-                          <strong>{name}</strong>
-                          <span>{technologies.length} 张卡牌</span>
-                        </div>
-                        <div className="deck-card__body">
-                          <p>{summary}</p>
-                        </div>
-                      </button>
+                      <div key={deckId} className="deck-card-wrap">
+                        <button
+                          type="button"
+                          ref={(element) => {
+                            deckItemRefs.current.set(deckId, element);
+                          }}
+                          className={`deck-card ${selectedDeckId === deckId ? "deck-card--active" : ""}`}
+                          onClick={() => handleSelectDeckProject(deckId)}
+                        >
+                          <div className="deck-card__meta">
+                            <span>时间 {formatHours(totalHours)}</span>
+                            <span>稀有度 {formatPercent(rarityProduct)}</span>
+                            <span>达成 1人</span>
+                          </div>
+                          <div className="deck-card__title-row">
+                            <strong>{name}</strong>
+                            <span>{technologies.length} 张卡牌</span>
+                          </div>
+                          <div className="deck-card__body">
+                            <p>{summary}</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          className="deck-card__delete"
+                          disabled={Boolean(deletingDeckId)}
+                          aria-label={`删除牌组 ${name}`}
+                          title="删除牌组（保留卡牌）"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteDeck(deckId);
+                          }}
+                        >
+                          <DeleteOutlined />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </>

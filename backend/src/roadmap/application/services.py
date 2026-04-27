@@ -60,6 +60,12 @@ class RoadmapQueryService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
         return self.get_project_profile(project.id)
 
+    def delete_project(self, project_id: str) -> None:
+        try:
+            self._repository.delete_project(project_id)
+        except ValueError as err:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
     def update_technology_layouts(self, layouts: Dict[str, tuple[float, float]]) -> None:
         try:
             self._repository.update_technology_layouts(layouts)

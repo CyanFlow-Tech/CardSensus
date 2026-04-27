@@ -96,6 +96,16 @@ class JsonRoadmapRepository(RoadmapRepository):
         assert parsed is not None
         return parsed
 
+    def delete_project(self, project_id: str) -> None:
+        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        projects = data.get("projects", [])
+        filtered = [project for project in projects if str(project.get("id", "")).strip() != project_id]
+        if len(filtered) == len(projects):
+            msg = f"project not found: {project_id}"
+            raise ValueError(msg)
+        data["projects"] = filtered
+        self._write_data(data)
+
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
         if not any(t["id"] == parent_id for t in data["technologies"]):

@@ -99,5 +99,7 @@ export const roadmapApi = {
   deleteTechnology: (technologyId: string) =>
     httpDelete(`/technologies/${encodeURIComponent(technologyId)}`),
   createProject: (payload: ProjectCreatePayload) =>
-    httpPost<{ project: Project; related_technologies: Technology[] }>("/projects", payload)
+    httpPost<{ project: Project; related_technologies: Technology[] }>("/projects", payload),
+  deleteProject: (projectId: string) =>
+    httpDelete(`/projects/${encodeURIComponent(projectId)}`)
 };

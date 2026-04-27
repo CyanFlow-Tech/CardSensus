@@ -33,6 +33,11 @@ class RoadmapRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def delete_project(self, project_id: str) -> None:
+        """删除一个牌组，不影响技术节点与依赖关系。"""
+        raise NotImplementedError
+
+    @abstractmethod
     def add_derived_technology(self, parent_id: str) -> TechnologyNode:
         """在依赖关系上位于 parent 的上一层新建节点：parent ->(dependency)-> new。"""
         raise NotImplementedError
