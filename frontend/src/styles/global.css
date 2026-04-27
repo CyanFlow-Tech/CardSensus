@@ -606,6 +606,15 @@ a {
   padding-right: 2px;
 }
 
+.deck-sidebar__picker-scroll {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-right: 2px;
+}
+
 .deck-sidebar__empty {
   min-height: 100%;
   display: grid;

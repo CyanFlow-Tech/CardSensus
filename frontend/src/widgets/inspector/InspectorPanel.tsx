@@ -49,7 +49,6 @@ export function InspectorPanel({
   const [draftUsers, setDraftUsers] = useState(0);
   const [resourceInputOpen, setResourceInputOpen] = useState(false);
   const [resourceDraft, setResourceDraft] = useState("");
-  const [regeneratingImage, setRegeneratingImage] = useState(false);
   const resourceInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -175,14 +174,13 @@ export function InspectorPanel({
   };
 
   const handleRegenerateImage = async () => {
-    if (!technology || regeneratingImage) {
+    if (!technology || technology.image_generating) {
       return;
     }
-    setRegeneratingImage(true);
     try {
       await onRegenerateImage?.(technology.id);
-    } finally {
-      setRegeneratingImage(false);
+    } catch {
+      /* 错误由父级展示 */
     }
   };
 
@@ -424,11 +422,12 @@ export function InspectorPanel({
           <button
             type="button"
             className="inspector-resource-add"
-            disabled={regeneratingImage}
+            disabled={technology.image_generating}
             onClick={() => void handleRegenerateImage()}
             aria-label="重新生成插图"
+            aria-busy={technology.image_generating}
           >
-            <span>{regeneratingImage ? "插图生成中..." : "重新生成插图"}</span>
+            <span>{technology.image_generating ? "正在生成插图..." : "重新生成插图"}</span>
           </button>
         </div>
       ) : null}

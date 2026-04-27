@@ -5,6 +5,7 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  type NodeChange,
   useEdgesState,
   useReactFlow,
   ViewportPortal,
@@ -44,6 +45,7 @@ interface TopologyMapProps {
   creatingFromId: string | null;
   glowingTechnologyIds: string[];
   editable?: boolean;
+  onUpdateTechnologyLayout?: (technologyId: string, position: { x: number; y: number }) => void | Promise<void>;
   /** 在创建/删除卡牌等结构变化后自增，用于触发布局后的 fitView */
   layoutKey: number;
 }
@@ -149,7 +151,7 @@ const TechnologyNodeCard = memo(({ data }: { data: TechnologyNodeData }) => {
         ) : null}
         <button
           type="button"
-          className={`tech-node tech-node--${rarity.tier} ${isSelected ? "tech-node--selected" : ""} ${isGlowing ? "tech-node--glow" : ""} ${isDependencyDropTarget ? "tech-node--link-target" : ""}`}
+          className={`tech-node tech-node--drag-handle tech-node--${rarity.tier} ${isSelected ? "tech-node--selected" : ""} ${isGlowing ? "tech-node--glow" : ""} ${isDependencyDropTarget ? "tech-node--link-target" : ""}`}
           onClick={() => onSelect(technology.id)}
         >
           <div className="tech-node__top">
@@ -273,6 +275,7 @@ export function TopologyMap({
   creatingFromId,
   glowingTechnologyIds,
   editable = true,
+  onUpdateTechnologyLayout,
   layoutKey
 }: TopologyMapProps) {
   const [viewportReady, setViewportReady] = useState(() => technologies.length === 0);
@@ -418,7 +421,8 @@ export function TopologyMap({
           creatingFromId,
           editable
         },
-        draggable: false,
+        draggable: editable,
+        dragHandle: ".tech-node--drag-handle",
         sourcePosition: Position.Top,
         targetPosition: Position.Bottom
       })),
@@ -573,6 +577,10 @@ export function TopologyMap({
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          onNodesChange={(_: NodeChange[]) => {}}
+          onNodeDragStop={(_, node) => {
+            void onUpdateTechnologyLayout?.(node.id, node.position);
+          }}
           onEdgesChange={onEdgesChange}
           deleteKeyCode={editable ? "Delete" : null}
           onEdgesDelete={editable ? handleEdgesDelete : undefined}
@@ -580,7 +588,7 @@ export function TopologyMap({
           minZoom={0.05}
           fitViewOptions={{ padding: 0.2, minZoom: 0.05 }}
           nodeTypes={nodeTypes}
-          nodesDraggable={false}
+          nodesDraggable={editable}
           onPaneClick={onClearSelection}
         >
           <DependencyDraftOverlay drag={dependencyDrag} />

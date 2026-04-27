@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Tuple
+from typing import Mapping, Tuple
 
 
 class ProficiencyStatus(str, Enum):
@@ -71,6 +71,7 @@ class TechnologyNode:
     activity: ActivitySnapshot
     thresholds: ThresholdPolicy
     image_url: str = ""
+    image_generating: bool = False
     resources: Tuple[ResourceLink, ...] = field(default_factory=tuple)
     layout: LayoutPosition = field(default_factory=lambda: LayoutPosition(x=0, y=0))
 
@@ -90,5 +91,5 @@ class ProjectNode:
     repository_url: str
     status: ProjectStatus
     associated_tech: Tuple[str, ...]
+    layouts: Mapping[str, LayoutPosition] = field(default_factory=dict)
     highlights: Tuple[str, ...] = field(default_factory=tuple)
-

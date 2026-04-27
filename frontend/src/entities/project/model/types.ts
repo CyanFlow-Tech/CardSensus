@@ -1,3 +1,5 @@
+import type { LayoutPosition } from "../../technology/model/types";
+
 export interface Project {
   id: string;
   name: string;
@@ -5,6 +7,6 @@ export interface Project {
   repository_url: string;
   status: "active" | "archived" | "incubating";
   associated_tech: string[];
+  layouts: Record<string, LayoutPosition>;
   highlights: string[];
 }
-

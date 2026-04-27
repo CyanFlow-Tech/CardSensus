@@ -32,6 +32,7 @@ class TechnologyResponse(BaseModel):
     rarity_index: float
     active_user_count: int
     image_url: str = ""
+    image_generating: bool = False
     layout: LayoutResponse
     resource_count: int
 
@@ -62,6 +63,7 @@ class TechnologyLayoutItemRequest(BaseModel):
 
 
 class TechnologyLayoutBatchRequest(BaseModel):
+    project_id: Optional[str] = None
     items: List[TechnologyLayoutItemRequest]
 
 
@@ -74,6 +76,7 @@ class ProjectResponse(BaseModel):
     repository_url: str
     status: str
     associated_tech: List[str]
+    layouts: dict[str, LayoutResponse]
     highlights: List[str]
 
 
@@ -127,6 +130,7 @@ class HealthResponse(BaseModel):
 class AsyncActionResponse(BaseModel):
     status: str
     detail: str
+    image_url: str = ""
 
 
 class TechnologyResourceNoteAppendRequest(BaseModel):

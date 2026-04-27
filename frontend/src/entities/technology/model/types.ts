@@ -22,6 +22,7 @@ export interface Technology {
   rarity_index: number;
   active_user_count: number;
   image_url: string;
+  image_generating: boolean;
   layout: LayoutPosition;
   resource_count: number;
 }
@@ -36,4 +37,3 @@ export interface Relation {
   target_id: string;
   relation_type: string;
 }
-

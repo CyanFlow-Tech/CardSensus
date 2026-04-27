@@ -58,12 +58,21 @@ class CardSensusRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def update_technology_layouts(self, layouts: Mapping[str, tuple[float, float]]) -> None:
-        """批量更新卡牌在图谱中的 layout.x / layout.y（写入持久化）。"""
+    def update_technology_layouts(
+        self,
+        layouts: Mapping[str, tuple[float, float]],
+        *,
+        project_id: str | None = None,
+    ) -> None:
+        """批量更新卡牌布局；project_id 为空时写全局 layout，否则写指定牌组缓存。"""
         raise NotImplementedError
 
     @abstractmethod
     def update_technology(self, technology_id: str, updates: Mapping[str, Any]) -> TechnologyNode:
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_technology_image_generating(self, technology_id: str, is_generating: bool) -> TechnologyNode:
         raise NotImplementedError
 
     @abstractmethod

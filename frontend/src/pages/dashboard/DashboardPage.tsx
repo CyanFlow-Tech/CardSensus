@@ -11,7 +11,7 @@ import {
   VerticalAlignTopOutlined
 } from "@ant-design/icons";
 import type { Project } from "../../entities/project/model/types";
-import type { Technology, TechnologyDetail } from "../../entities/technology/model/types";
+import type { LayoutPosition, Technology, TechnologyDetail } from "../../entities/technology/model/types";
 import {
   cardSensusApi,
   type DashboardGraphResponse,
@@ -42,6 +42,15 @@ const emptyTechnologyState: SelectedTechnologyState = {
   unlocks: []
 };
 
+function applyTechnologyProfile(response: TechnologyProfileResponse): SelectedTechnologyState {
+  return {
+    technology: response.technology,
+    relatedProjects: response.related_projects,
+    prerequisites: response.prerequisites,
+    unlocks: response.unlocks
+  };
+}
+
 interface SyncDraftChanges {
   addedIds: string[];
   updatedIds: string[];
@@ -61,6 +70,25 @@ interface DeckViewCard {
 interface NodePickerCard {
   technology: Technology;
   projectCount: number;
+}
+
+function cloneProject(project: Project): Project {
+  return {
+    ...project,
+    layouts: Object.fromEntries(
+      Object.entries(project.layouts ?? {}).map(([technologyId, layout]) => [
+        technologyId,
+        { x: layout.x, y: layout.y }
+      ])
+    )
+  };
+}
+
+function withTechnologyLayout(technology: Technology, layout: LayoutPosition): Technology {
+  return {
+    ...technology,
+    layout: { x: layout.x, y: layout.y }
+  };
 }
 
 function normalizeSyncItem(item: TechnologySyncItemPayload): TechnologySyncItemPayload | null {
@@ -131,6 +159,7 @@ function buildSyncPreview(
   items: TechnologySyncItemPayload[]
 ): { graph: DashboardGraphResponse; addedIds: string[]; updatedIds: string[] } {
   const technologies = baseGraph.technologies.map((item) => ({ ...item, layout: { ...item.layout } }));
+  const projects = baseGraph.projects.map(cloneProject);
   const byId = new Map(technologies.map((item) => [item.id, item]));
   const byName = new Map(technologies.map((item) => [item.name.trim(), item]));
   let draftIndex = 1;
@@ -212,6 +241,7 @@ function buildSyncPreview(
       rarity_index: Math.min(1, Math.max(0, normalized.rarity_index ?? 0.5)),
       active_user_count: Math.max(0, normalized.active_user_count ?? 0),
       image_url: "",
+      image_generating: false,
       layout: { x: 0, y: 0 },
       resource_count: 0
     };
@@ -246,6 +276,7 @@ function buildSyncPreview(
     graph: {
       ...baseGraph,
       technologies,
+      projects,
       relations: draftRelations
     },
     addedIds,
@@ -362,6 +393,22 @@ function projectIdToLayoutKey(projectId: string | null): number {
   return [...projectId].reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
+function buildDeckSpecificTechnologies(
+  technologiesById: Map<string, Technology>,
+  project: Project
+): Technology[] {
+  return project.associated_tech
+    .map((technologyId) => {
+      const technology = technologiesById.get(technologyId);
+      if (!technology) {
+        return null;
+      }
+      const cachedLayout = project.layouts?.[technologyId];
+      return cachedLayout ? withTechnologyLayout(technology, cachedLayout) : technology;
+    })
+    .filter((technology): technology is Technology => Boolean(technology));
+}
+
 export function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardGraphResponse | null>(null);
   const [selectedTechnologyId, setSelectedTechnologyId] = useState<string | null>(null);
@@ -396,6 +443,10 @@ export function DashboardPage() {
   const glowingTechnologyIds = syncDraftChanges
     ? [...syncDraftChanges.addedIds, ...syncDraftChanges.updatedIds]
     : [];
+  const technologiesById = useMemo(
+    () => new Map((dashboard?.technologies ?? []).map((technology) => [technology.id, technology])),
+    [dashboard]
+  );
 
   const bumpMapLayout = useCallback(() => {
     setMapLayoutKey((k) => k + 1);
@@ -417,6 +468,15 @@ export function DashboardPage() {
     if (!dashboard) {
       return;
     }
+    const activeProject = selectedDeckId === ALL_DECK_ID
+      ? null
+      : dashboard.projects.find((project) => project.id === selectedDeckId) ?? null;
+    const activeTechnologies = activeProject
+      ? buildDeckSpecificTechnologies(technologiesById, activeProject)
+      : dashboard.technologies;
+    const activeRelations = activeProject
+      ? buildDeckRelations(dashboard.relations, activeTechnologies.map((technology) => technology.id))
+      : dashboard.relations;
     if (isSyncDrafting) {
       showToast("草稿同步中，请先确认或取消后再重排布局");
       return;
@@ -424,19 +484,83 @@ export function DashboardPage() {
     clearToast();
     setRelayoutSaving(true);
     try {
-      const positions = buildLayeredPositions(dashboard.technologies, dashboard.relations);
+      const positions = buildLayeredPositions(activeTechnologies, activeRelations);
       const items = [...positions.entries()].map(([id, pos]) => ({ id, x: pos.x, y: pos.y }));
-      await cardSensusApi.updateTechnologyLayouts(items);
+      await cardSensusApi.updateTechnologyLayouts({
+        project_id: activeProject?.id,
+        items
+      });
       const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
       bumpMapLayout();
-      showToast("已全局重排并保存布局到数据文件");
+      showToast(activeProject ? "已重排当前牌组并缓存布局" : "已全局重排并保存布局到数据文件");
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "保存布局失败");
     } finally {
       setRelayoutSaving(false);
     }
-  }, [bumpMapLayout, clearToast, dashboard, isSyncDrafting, showToast]);
+  }, [bumpMapLayout, clearToast, dashboard, isSyncDrafting, selectedDeckId, showToast, technologiesById]);
+
+  const handleUpdateTechnologyLayout = useCallback(
+    async (technologyId: string, position: { x: number; y: number }) => {
+      const activeProjectId = selectedDeckId === ALL_DECK_ID ? undefined : selectedDeckId;
+      if (isSyncDrafting) {
+        showToast("草稿同步中暂不支持拖动保存布局，请先确认或取消草稿");
+        return;
+      }
+      setDashboard((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const nextProjects = prev.projects.map((project) => {
+          if (project.id !== activeProjectId) {
+            return project;
+          }
+          return {
+            ...project,
+            layouts: {
+              ...(project.layouts ?? {}),
+              [technologyId]: {
+                x: position.x,
+                y: position.y
+              }
+            }
+          };
+        });
+        return {
+          ...prev,
+          projects: nextProjects,
+          technologies: prev.technologies.map((technology) =>
+            technology.id === technologyId && !activeProjectId
+              ? {
+                  ...technology,
+                  layout: {
+                    x: position.x,
+                    y: position.y
+                  }
+                }
+              : technology
+          )
+        };
+      });
+
+      try {
+        await cardSensusApi.updateTechnologyLayouts({
+          project_id: activeProjectId,
+          items: [{ id: technologyId, x: position.x, y: position.y }]
+        });
+      } catch (requestError) {
+        showToast(requestError instanceof Error ? requestError.message : "保存卡牌位置失败");
+        try {
+          const graph = await cardSensusApi.getDashboardGraph();
+          setDashboard(graph);
+        } catch {
+          /* 保持当前前端状态，避免覆盖原始错误 */
+        }
+      }
+    },
+    [isSyncDrafting, selectedDeckId, showToast]
+  );
 
   const handleDiscardSyncDraft = useCallback(async () => {
     clearToast();
@@ -507,22 +631,38 @@ export function DashboardPage() {
     cardSensusApi
       .getTechnologyProfile(selectedTechnologyId)
       .then((response: TechnologyProfileResponse) => {
-        setSelectedTechnology({
-          technology: response.technology,
-          relatedProjects: response.related_projects,
-          prerequisites: response.prerequisites,
-          unlocks: response.unlocks
-        });
+        setSelectedTechnology(applyTechnologyProfile(response));
       })
       .catch((requestError) => {
         showToast(requestError instanceof Error ? requestError.message : "卡牌详情加载失败");
       });
   }, [dashboard, isSyncDrafting, selectedTechnologyId, showToast]);
 
-  const technologiesById = useMemo(
-    () => new Map((dashboard?.technologies ?? []).map((technology) => [technology.id, technology])),
-    [dashboard]
-  );
+  useEffect(() => {
+    const technologyId = selectedTechnologyId;
+    const currentTechnology = selectedTechnology.technology;
+    if (!technologyId || !currentTechnology?.image_generating || isSyncDrafting) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void Promise.all([
+        cardSensusApi.getTechnologyProfile(technologyId),
+        cardSensusApi.getDashboardGraph()
+      ])
+        .then(([profile, graph]) => {
+          setDashboard(graph);
+          setSelectedTechnology((prev) => (
+            prev.technology?.id === technologyId ? applyTechnologyProfile(profile) : prev
+          ));
+        })
+        .catch(() => {
+          /* 静默重试，避免后台生成期间持续提示 */
+        });
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [isSyncDrafting, selectedTechnology.technology, selectedTechnologyId]);
 
   const deckCards = useMemo<DeckViewCard[]>(() => {
     if (!dashboard) {
@@ -541,14 +681,12 @@ export function DashboardPage() {
     };
 
     const projectDeckCards = dashboard.projects.map((project) => {
-      const technologies = project.associated_tech
-        .map((technologyId) => technologiesById.get(technologyId))
-        .filter((technology): technology is Technology => Boolean(technology));
+      const technologies = buildDeckSpecificTechnologies(technologiesById, project);
       return {
         deckId: project.id,
         name: project.name,
         summary: project.summary,
-        project,
+        project: cloneProject(project),
         isAllDeck: false,
         technologies,
         totalHours: technologies.reduce((sum, technology) => sum + technology.time_spent_hours, 0),
@@ -927,12 +1065,7 @@ export function DashboardPage() {
       const profile = await cardSensusApi.updateTechnology(technologyId, payload);
       const graph = await cardSensusApi.getDashboardGraph();
       setDashboard(graph);
-      setSelectedTechnology({
-        technology: profile.technology,
-        relatedProjects: profile.related_projects,
-        prerequisites: profile.prerequisites,
-        unlocks: profile.unlocks
-      });
+      setSelectedTechnology(applyTechnologyProfile(profile));
     } catch (requestError) {
       showToast(requestError instanceof Error ? requestError.message : "更新失败");
       throw requestError;
@@ -970,12 +1103,7 @@ export function DashboardPage() {
         const profile = await cardSensusApi.appendTechnologyResourceNote(selectedTechnologyId, text);
         const graph = await cardSensusApi.getDashboardGraph();
         setDashboard(graph);
-        setSelectedTechnology({
-          technology: profile.technology,
-          relatedProjects: profile.related_projects,
-          prerequisites: profile.prerequisites,
-          unlocks: profile.unlocks
-        });
+        setSelectedTechnology(applyTechnologyProfile(profile));
       } catch (requestError) {
         showToast(requestError instanceof Error ? requestError.message : "添加资料失败");
         throw requestError;
@@ -989,13 +1117,21 @@ export function DashboardPage() {
       clearToast();
       try {
         const result = await cardSensusApi.regenerateTechnologyImage(technologyId);
+        const [graph, profile] = await Promise.all([
+          cardSensusApi.getDashboardGraph(),
+          cardSensusApi.getTechnologyProfile(technologyId)
+        ]);
+        setDashboard(graph);
+        if (selectedTechnologyId === technologyId) {
+          setSelectedTechnology(applyTechnologyProfile(profile));
+        }
         showToast(result.detail || "已开始后台生成插图");
       } catch (requestError) {
         showToast(requestError instanceof Error ? requestError.message : "重新生成插图失败");
         throw requestError;
       }
     },
-    [clearToast, showToast]
+    [clearToast, selectedTechnologyId, showToast]
   );
 
   const handleSelectProject = (projectId: string) => {
@@ -1334,6 +1470,7 @@ export function DashboardPage() {
                 creatingFromId={creatingFromId}
                 glowingTechnologyIds={glowingTechnologyIds}
                 editable
+                onUpdateTechnologyLayout={handleUpdateTechnologyLayout}
                 layoutKey={activeDeckLayoutKey}
               />
             ) : (
@@ -1454,38 +1591,40 @@ export function DashboardPage() {
                 </div>
               ) : null}
               {isCreatingDeck || isEditingDeck ? (
-                filteredNodePickerCards.length > 0 ? (
-                  filteredNodePickerCards.map(({ technology, projectCount }) => (
-                    <label
-                      key={technology.id}
-                      className={`deck-card deck-card--node-picker ${
-                        selectedDeckTechnologyIds.includes(technology.id) ? "deck-card--active" : ""
-                      }`}
-                    >
-                      <div className="deck-card__checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedDeckTechnologyIds.includes(technology.id)}
-                          onChange={() => handleToggleDeckTechnology(technology.id)}
-                          aria-label={`选择卡牌 ${technology.name}`}
-                        />
-                      </div>
-                      <div className="deck-card__meta">
-                        <span>时间 {formatHours(technology.time_spent_hours)}</span>
-                        <span>品质 {formatPercent(technology.rarity_index)}</span>
-                        <span>牌组 {projectCount}</span>
-                      </div>
-                      <div className="deck-card__body">
-                        <strong>{technology.name}</strong>
-                        <p>{technology.summary}</p>
-                      </div>
-                    </label>
-                  ))
-                ) : (
-                  <div className="deck-sidebar__empty" role="status">
-                    没有命中该关键词的卡牌
-                  </div>
-                )
+                <div className="deck-sidebar__picker-scroll">
+                  {filteredNodePickerCards.length > 0 ? (
+                    filteredNodePickerCards.map(({ technology, projectCount }) => (
+                      <label
+                        key={technology.id}
+                        className={`deck-card deck-card--node-picker ${
+                          selectedDeckTechnologyIds.includes(technology.id) ? "deck-card--active" : ""
+                        }`}
+                      >
+                        <div className="deck-card__checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedDeckTechnologyIds.includes(technology.id)}
+                            onChange={() => handleToggleDeckTechnology(technology.id)}
+                            aria-label={`选择卡牌 ${technology.name}`}
+                          />
+                        </div>
+                        <div className="deck-card__meta">
+                          <span>时间 {formatHours(technology.time_spent_hours)}</span>
+                          <span>品质 {formatPercent(technology.rarity_index)}</span>
+                          <span>牌组 {projectCount}</span>
+                        </div>
+                        <div className="deck-card__body">
+                          <strong>{technology.name}</strong>
+                          <p>{technology.summary}</p>
+                        </div>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="deck-sidebar__empty" role="status">
+                      没有命中该关键词的卡牌
+                    </div>
+                  )}
+                </div>
               ) : filteredDeckCards.length > 0 ? (
                 <>
                   {pinnedDeckCard ? (

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class TechnologyDTO:
     rarity_index: float
     active_user_count: int
     image_url: str
+    image_generating: bool
     layout: LayoutDTO
     resource_count: int
 
@@ -53,6 +54,7 @@ class ProjectDTO:
     repository_url: str
     status: str
     associated_tech: List[str]
+    layouts: Dict[str, LayoutDTO] = field(default_factory=dict)
     highlights: List[str] = field(default_factory=list)
 
 
@@ -83,4 +85,3 @@ class TechnologyProfileDTO:
 class ProjectProfileDTO:
     project: ProjectDTO
     related_technologies: List[TechnologyDTO]
-

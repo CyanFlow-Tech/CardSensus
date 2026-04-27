@@ -76,9 +76,15 @@ export interface TechnologyLayoutItemPayload {
   y: number;
 }
 
+export interface TechnologyLayoutBatchPayload {
+  project_id?: string;
+  items: TechnologyLayoutItemPayload[];
+}
+
 export interface AsyncActionResponse {
   status: string;
   detail: string;
+  image_url: string;
 }
 
 export const cardSensusApi = {
@@ -93,8 +99,8 @@ export const cardSensusApi = {
     httpDelete(
       `/relations?${new URLSearchParams({ source_id: sourceId, target_id: targetId }).toString()}`
     ),
-  updateTechnologyLayouts: (items: TechnologyLayoutItemPayload[]) =>
-    httpPatchNoContent("/technologies/layout", { items }),
+  updateTechnologyLayouts: (payload: TechnologyLayoutBatchPayload) =>
+    httpPatchNoContent("/technologies/layout", payload),
   getTechnologyProfile: (technologyId: string) =>
     httpGet<TechnologyProfileResponse>(`/technologies/${technologyId}`),
   regenerateTechnologyImage: (technologyId: string) =>

@@ -49,7 +49,10 @@ def create_router(service: CardSensusQueryService) -> APIRouter:
 
     @router.patch("/technologies/layout", status_code=status.HTTP_204_NO_CONTENT)
     def patch_technology_layouts(body: TechnologyLayoutBatchRequest) -> Response:
-        service.update_technology_layouts({item.id: (item.x, item.y) for item in body.items})
+        service.update_technology_layouts(
+            {item.id: (item.x, item.y) for item in body.items},
+            project_id=body.project_id,
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get(
@@ -74,7 +77,7 @@ def create_router(service: CardSensusQueryService) -> APIRouter:
         status_code=status.HTTP_202_ACCEPTED,
     )
     def regenerate_technology_image(technology_id: str) -> AsyncActionResponse:
-        return AsyncActionResponse.model_validate(service.queue_regenerate_technology_image(technology_id))
+        return AsyncActionResponse.model_validate(service.regenerate_technology_image(technology_id))
 
     @router.post(
         "/technologies/{technology_id}/resources",

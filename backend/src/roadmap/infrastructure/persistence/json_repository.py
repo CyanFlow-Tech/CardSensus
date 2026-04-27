@@ -137,6 +137,13 @@ class JsonCardSensusRepository(CardSensusRepository):
         project_row["name"] = normalized_name
         project_row["summary"] = normalized_summary
         project_row["associated_tech"] = normalized_ids
+        raw_layouts = project_row.get("layouts")
+        if isinstance(raw_layouts, dict):
+            project_row["layouts"] = {
+                tech_id: layout
+                for tech_id, layout in raw_layouts.items()
+                if str(tech_id).strip() in set(normalized_ids)
+            }
         self._write_data(data)
         parsed = self.get_project(project_id)
         assert parsed is not None
@@ -204,18 +211,45 @@ class JsonCardSensusRepository(CardSensusRepository):
             raise ValueError(msg)
         self._write_data(data)
 
-    def update_technology_layouts(self, layouts: Mapping[str, tuple[float, float]]) -> None:
+    def update_technology_layouts(
+        self,
+        layouts: Mapping[str, tuple[float, float]],
+        *,
+        project_id: str | None = None,
+    ) -> None:
         if not layouts:
             return
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
         by_id = {str(t["id"]): t for t in data["technologies"]}
         unknown_ids: List[str] = []
-        for tech_id, (x, y) in layouts.items():
-            row = by_id.get(str(tech_id))
-            if row is None:
-                unknown_ids.append(str(tech_id))
-                continue
-            row["layout"] = {"x": float(x), "y": float(y)}
+        if project_id is None:
+            for tech_id, (x, y) in layouts.items():
+                row = by_id.get(str(tech_id))
+                if row is None:
+                    unknown_ids.append(str(tech_id))
+                    continue
+                row["layout"] = {"x": float(x), "y": float(y)}
+        else:
+            projects = data.get("projects", [])
+            project_row = next((project for project in projects if str(project.get("id", "")).strip() == project_id), None)
+            if project_row is None:
+                msg = f"project not found: {project_id}"
+                raise ValueError(msg)
+            associated_ids = {str(item).strip() for item in project_row.get("associated_tech", [])}
+            project_layouts = project_row.get("layouts")
+            if not isinstance(project_layouts, dict):
+                project_layouts = {}
+                project_row["layouts"] = project_layouts
+            for tech_id, (x, y) in layouts.items():
+                normalized_id = str(tech_id)
+                row = by_id.get(normalized_id)
+                if row is None:
+                    unknown_ids.append(normalized_id)
+                    continue
+                if normalized_id not in associated_ids:
+                    msg = f"technology {normalized_id} is not in project {project_id}"
+                    raise ValueError(msg)
+                project_layouts[normalized_id] = {"x": float(x), "y": float(y)}
         if unknown_ids:
             # Ignore stale client ids to keep relayout robust; valid nodes are still persisted.
             data["relations"] = [
@@ -242,6 +276,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             "rarity_index",
             "active_user_count",
             "image_url",
+            "image_generating",
         }
         for key, value in updates.items():
             if key in allowed and value is not None:
@@ -250,6 +285,9 @@ class JsonCardSensusRepository(CardSensusRepository):
         result = self.get_technology(technology_id)
         assert result is not None
         return result
+
+    def set_technology_image_generating(self, technology_id: str, is_generating: bool) -> TechnologyNode:
+        return self.update_technology(technology_id, {"image_generating": bool(is_generating)})
 
     def append_technology_resource_note(self, technology_id: str, text: str) -> None:
         data = json.loads(self._data_file.read_text(encoding="utf-8"))
@@ -326,6 +364,9 @@ class JsonCardSensusRepository(CardSensusRepository):
             associated = project.get("associated_tech", [])
             if technology_id in associated:
                 project["associated_tech"] = [x for x in associated if x != technology_id]
+            raw_layouts = project.get("layouts")
+            if isinstance(raw_layouts, dict):
+                raw_layouts.pop(technology_id, None)
         self._write_data(data)
 
     def sync_technologies(self, items: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
@@ -377,6 +418,8 @@ class JsonCardSensusRepository(CardSensusRepository):
                 )
                 if "image_url" in item:
                     existing_row["image_url"] = str(item.get("image_url", existing_row.get("image_url", "")))
+                if "image_generating" in item:
+                    existing_row["image_generating"] = bool(item.get("image_generating", existing_row.get("image_generating", False)))
                 node_id = str(existing_row.get("id", "")).strip()
                 if node_id and node_id not in updated_ids:
                     updated_ids.append(node_id)
@@ -404,6 +447,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             row["rarity_index"] = min(1.0, max(0.0, float(item.get("rarity_index", row["rarity_index"]))))
             row["active_user_count"] = max(0, int(item.get("active_user_count", row["active_user_count"])))
             row["image_url"] = str(item.get("image_url", row.get("image_url", "")))
+            row["image_generating"] = bool(item.get("image_generating", row.get("image_generating", False)))
 
             technologies.append(row)
             existing_ids.add(node_id)
@@ -482,6 +526,7 @@ class JsonCardSensusRepository(CardSensusRepository):
                 "rarity_index": tech.rarity_index,
                 "active_user_count": tech.active_user_count,
                 "image_url": tech.image_url,
+                "image_generating": tech.image_generating,
                 "dependency_ids": dependency_by_target.get(tech.id, []),
             }
             for tech in self.list_technologies()
@@ -496,6 +541,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             "rarity_index": 0.5,
             "active_user_count": 0,
             "image_url": "",
+            "image_generating": False,
             "activity": {
                 "reading_hours": 0.0,
                 "coding_hours": 0.0,
@@ -545,6 +591,7 @@ class JsonCardSensusRepository(CardSensusRepository):
             rarity_index=payload["rarity_index"],
             active_user_count=payload["active_user_count"],
             image_url=str(payload.get("image_url", "")),
+            image_generating=bool(payload.get("image_generating", False)),
             activity=ActivitySnapshot(
                 reading_hours=payload["activity"]["reading_hours"],
                 coding_hours=payload["activity"]["coding_hours"],
@@ -578,6 +625,12 @@ class JsonCardSensusRepository(CardSensusRepository):
         )
 
     def _parse_project(self, payload: Dict[str, Any]) -> ProjectNode:
+        raw_layouts = payload.get("layouts", {})
+        parsed_layouts = {
+            str(tech_id): LayoutPosition(x=float(layout["x"]), y=float(layout["y"]))
+            for tech_id, layout in raw_layouts.items()
+            if isinstance(layout, dict) and "x" in layout and "y" in layout
+        } if isinstance(raw_layouts, dict) else {}
         return ProjectNode(
             id=payload["id"],
             name=payload["name"],
@@ -585,5 +638,6 @@ class JsonCardSensusRepository(CardSensusRepository):
             repository_url=payload["repository_url"],
             status=ProjectStatus(payload["status"]),
             associated_tech=tuple(payload["associated_tech"]),
+            layouts=parsed_layouts,
             highlights=tuple(payload["highlights"]),
         )
